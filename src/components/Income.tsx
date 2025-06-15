@@ -70,7 +70,7 @@ const Income = () => {
   const [editingIncome, setEditingIncome] = useState<IncomeEntry | null>(null);
   const [sortField, setSortField] = useState<keyof IncomeEntry | "percentage" | "amountPerFrequency">("description");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-  const [filterFrequency, setFilterFrequency] = useState<Frequency>("monthly");
+  const [displayFrequency, setDisplayFrequency] = useState<Frequency>("monthly");
   const [newIncome, setNewIncome] = useState({
     description: '',
     amount: '',
@@ -101,7 +101,7 @@ const Income = () => {
         }
         const { frequency } = await frequencyResponse.json();
         if (frequency) {
-          setFilterFrequency(frequency);
+          setDisplayFrequency(frequency);
         }
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -131,7 +131,7 @@ const Income = () => {
 
       const data = await response.json();
       if (data.frequency) {
-        setFilterFrequency(data.frequency);
+        setDisplayFrequency(data.frequency);
       }
     } catch (error) {
       console.error('Error saving frequency:', error);
@@ -290,8 +290,8 @@ const Income = () => {
       aValue = (Number(a.amount) / totalIncome) * 100;
       bValue = (Number(b.amount) / totalIncome) * 100;
     } else if (sortField === "amountPerFrequency") {
-      aValue = calculateFrequencyAmount(a.amount.toString(), a.frequency, filterFrequency);
-      bValue = calculateFrequencyAmount(b.amount.toString(), b.frequency, filterFrequency);
+      aValue = calculateFrequencyAmount(a.amount.toString(), a.frequency, displayFrequency);
+      bValue = calculateFrequencyAmount(b.amount.toString(), b.frequency, displayFrequency);
     }
 
     if (aValue instanceof Date && bValue instanceof Date) {
@@ -307,20 +307,23 @@ const Income = () => {
       : String(bValue).localeCompare(String(aValue));
   });
 
-  const calculateFrequencyAmount = (amount: string, expenseFrequency: string, targetFrequency: string) => {
+  const calculateFrequencyAmount = (amount: string, incomeFrequency: string, targetFrequency: string) => {
     // First convert to monthly equivalent
     let monthlyAmount = Number(amount);
-    switch (expenseFrequency) {
+    switch (incomeFrequency) {
       case "daily":
         monthlyAmount = monthlyAmount * 30;
         break;
       case "weekly":
         monthlyAmount = monthlyAmount * 4;
         break;
+      case "biweekly":
+        monthlyAmount = monthlyAmount * 2;
+        break;
       case "quarterly":
         monthlyAmount = monthlyAmount / 3;
         break;
-      case "yearly":
+      case "annually":
         monthlyAmount = monthlyAmount / 12;
         break;
     }
@@ -331,11 +334,13 @@ const Income = () => {
         return monthlyAmount / 30;
       case "weekly":
         return monthlyAmount / 4;
+      case "biweekly":
+        return monthlyAmount / 2;
       case "monthly":
         return monthlyAmount;
       case "quarterly":
         return monthlyAmount * 3;
-      case "yearly":
+      case "annually":
         return monthlyAmount * 12;
       default:
         return monthlyAmount;
@@ -375,7 +380,7 @@ const Income = () => {
           <FormControl size="small" sx={{ minWidth: 120 }}>
             <InputLabel>Frequency</InputLabel>
             <Select
-              value={filterFrequency}
+              value={displayFrequency}
               label="Frequency"
               onChange={handleFilterChange}
             >
@@ -424,7 +429,6 @@ const Income = () => {
                 Description {sortField === 'description' && (sortDirection === 'asc' ? '↑' : '↓')}
               </TableCell>
               <TableCell 
-                align="right"
                 onClick={() => handleSort('amount')}
                 sx={{ cursor: 'pointer' }}
               >
@@ -449,10 +453,12 @@ const Income = () => {
                 % {sortField === 'percentage' && (sortDirection === 'asc' ? '↑' : '↓')}
               </TableCell>
               <TableCell 
+                align="right"
                 onClick={() => handleSort('amountPerFrequency')}
                 sx={{ cursor: 'pointer' }}
               >
-                $ {sortField === 'amountPerFrequency' && (sortDirection === 'asc' ? '↑' : '↓')}
+                $({displayFrequency === 'biweekly' ? 'Fortnightly' : displayFrequency})
+                {sortField === 'amountPerFrequency' && (sortDirection === 'asc' ? '↑' : '↓')}
               </TableCell>
             </TableRow>
           </TableHead>
@@ -478,19 +484,23 @@ const Income = () => {
                   </Box>
                 </TableCell>
                 <TableCell>{income.description}</TableCell>
-                <TableCell align="right">{formatCurrency(income.amount)}</TableCell>
+                <TableCell>
+                  ${calculateFrequencyAmount(income.amount.toString(), income.frequency, displayFrequency).toFixed(2)}
+                </TableCell>
                 <TableCell>{income.frequency}</TableCell>
                 <TableCell>{formatDate(income.nextDue)}</TableCell>
                 <TableCell>{((Number(income.amount) / totalIncome) * 100).toFixed(1)}%</TableCell>
-                <TableCell>
-                  ${calculateFrequencyAmount(income.amount.toString(), income.frequency, filterFrequency).toFixed(2)}
+                <TableCell align="right">
+                  ${calculateFrequencyAmount(income.amount.toString(), income.frequency, displayFrequency).toFixed(2)}
                 </TableCell>
               </TableRow>
             ))}
             <TableRow sx={{ backgroundColor: 'rgba(0, 0, 0, 0.04)' }}>
               <TableCell colSpan={6} align="right"><strong>Total</strong></TableCell>
-              <TableCell align="right">
-                <strong>${calculateFrequencyAmount(totalIncome.toString(), 'monthly', filterFrequency).toFixed(2)}</strong>
+              <TableCell colSpan={2} align="right" sx={{ fontWeight: 'bold', color: 'text.primary' }}>
+                {formatCurrency(
+                  incomes.reduce((sum, income) => sum + calculateFrequencyAmount(income.amount.toString(), income.frequency, displayFrequency), 0)
+                )}
               </TableCell>
             </TableRow>
           </TableBody>

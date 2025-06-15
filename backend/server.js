@@ -452,7 +452,7 @@ app.post('/api/settings/frequency', (req, res) => {
   }
 
   // Validate frequency value
-  const validFrequencies = ['weekly', 'fortnightly', 'monthly', 'quarterly', 'yearly'];
+  const validFrequencies = ['daily', 'weekly', 'biweekly', 'monthly', 'quarterly', 'annually'];
   if (!validFrequencies.includes(frequency)) {
     res.status(400).json({ error: 'Invalid frequency value' });
     return;

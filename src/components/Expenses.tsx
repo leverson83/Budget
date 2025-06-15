@@ -37,11 +37,12 @@ import { API_URL, frequencies, type Frequency } from "../config";
 import axios from "axios";
 
 interface Expense {
-  id: string;
+  id: number;
   description: string;
   amount: number;
-  frequency: string;
+  frequency: Frequency;
   nextDue: string;
+  percentage: number;
   notes: string;
   applyFuzziness: boolean;
   accountId?: number;
@@ -98,9 +99,12 @@ const Expenses = () => {
   const [successMessage, setSuccessMessage] = useState("");
   const [showError, setShowError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [sortField, setSortField] = useState<"description" | "amount" | "frequency" | "account" | "nextDue" | "percentage" | "amountPerFrequency">("description");
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-  const [filterFrequency, setFilterFrequency] = useState<Frequency>("monthly");
+  const [displayFrequency, setDisplayFrequency] = useState<Frequency>("monthly");
+
+  type SortField = keyof Expense | 'amountPerFrequency';
+
+  const [sortField, setSortField] = useState<SortField>('amountPerFrequency');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -133,7 +137,7 @@ const Expenses = () => {
         }
         const { frequency } = await frequencyResponse.json();
         if (frequency) {
-          setFilterFrequency(frequency);
+          setDisplayFrequency(frequency);
         }
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -163,7 +167,7 @@ const Expenses = () => {
 
       const data = await response.json();
       if (data.frequency) {
-        setFilterFrequency(data.frequency);
+        setDisplayFrequency(data.frequency);
       }
     } catch (error) {
       console.error('Error saving frequency:', error);
@@ -309,97 +313,91 @@ const Expenses = () => {
     }
   };
 
-  const handleSort = (field: "description" | "amount" | "frequency" | "account" | "nextDue" | "percentage" | "amountPerFrequency") => {
+  const handleSort = (field: SortField) => {
     if (sortField === field) {
-      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
       setSortField(field);
-      setSortDirection("asc");
+      setSortDirection('desc');
     }
   };
 
-  const calculateFrequencyAmount = (amount: string, expenseFrequency: string, targetFrequency: string): number => {
-    // First convert to monthly amount
-    let monthlyAmount = Number(amount);
-    switch (expenseFrequency) {
+  const calculateFrequencyAmount = (amount: number | string, frequency: string, targetFrequency: string): number => {
+    // First convert to annual amount
+    let annualAmount = Number(amount);
+    switch (frequency) {
       case "daily":
-        monthlyAmount *= 30;
+        annualAmount *= 365;
         break;
       case "weekly":
-        monthlyAmount *= 4;
+        annualAmount *= 52;
+        break;
+      case "biweekly":
+        annualAmount *= 26;
+        break;
+      case "monthly":
+        annualAmount *= 12;
         break;
       case "quarterly":
-        monthlyAmount /= 3;
+        annualAmount *= 4;
         break;
-      case "yearly":
-        monthlyAmount /= 12;
+      case "annually":
+        // already annual
         break;
     }
 
     // Then convert to target frequency
     switch (targetFrequency) {
       case "daily":
-        return monthlyAmount / 30;
+        return annualAmount / 365;
       case "weekly":
-        return monthlyAmount / 4;
+        return annualAmount / 52;
+      case "biweekly":
+        return annualAmount / 26;
       case "monthly":
-        return monthlyAmount;
+        return annualAmount / 12;
       case "quarterly":
-        return monthlyAmount * 3;
-      case "yearly":
-        return monthlyAmount * 12;
+        return annualAmount / 4;
+      case "annually":
+        return annualAmount;
       default:
-        return monthlyAmount;
+        return annualAmount;
     }
   };
 
+  const calculateTotal = () => {
+    return expenses.reduce((total, expense) => {
+      return total + calculateFrequencyAmount(expense.amount, expense.frequency, displayFrequency);
+    }, 0);
+  };
+
+  const calculatePercentage = (amount: number, frequency: Frequency) => {
+    const convertedAmount = calculateFrequencyAmount(amount, frequency, displayFrequency);
+    const total = calculateTotal();
+    return total > 0 ? (convertedAmount / total) * 100 : 0;
+  };
+
   const sortedExpenses = [...expenses].sort((a, b) => {
-    switch (sortField) {
-      case "description":
-        return sortDirection === "asc" ? a.description.localeCompare(b.description) : b.description.localeCompare(a.description);
-      case "amount":
-        return sortDirection === "asc" 
-          ? Number(a.amount) - Number(b.amount)
-          : Number(b.amount) - Number(a.amount);
-      case "frequency":
-        return sortDirection === "asc" 
-          ? a.frequency.localeCompare(b.frequency)
-          : b.frequency.localeCompare(a.frequency);
-      case "account":
-        const aAccount = a.accountId?.toString() || "";
-        const bAccount = b.accountId?.toString() || "";
-        return sortDirection === "asc"
-          ? aAccount.localeCompare(bAccount)
-          : bAccount.localeCompare(aAccount);
-      case "nextDue":
-        return sortDirection === "asc"
-          ? new Date(a.nextDue).getTime() - new Date(b.nextDue).getTime()
-          : new Date(b.nextDue).getTime() - new Date(a.nextDue).getTime();
-      case "percentage":
-        const aPercentage = (Number(a.amount) / totalExpenses) * 100;
-        const bPercentage = (Number(b.amount) / totalExpenses) * 100;
-        return sortDirection === "asc"
-          ? aPercentage - bPercentage
-          : bPercentage - aPercentage;
-      case "amountPerFrequency":
-        const aAmount = calculateFrequencyAmount(a.amount.toString(), a.frequency, formData.frequency);
-        const bAmount = calculateFrequencyAmount(b.amount.toString(), b.frequency, formData.frequency);
-        return sortDirection === "asc"
-          ? aAmount - bAmount
-          : bAmount - aAmount;
-      default:
-        return 0;
+    if (sortField === 'amountPerFrequency') {
+      const amountA = calculateFrequencyAmount(a.amount, a.frequency, displayFrequency);
+      const amountB = calculateFrequencyAmount(b.amount, b.frequency, displayFrequency);
+      return sortDirection === 'asc' ? amountA - amountB : amountB - amountA;
     }
+
+    const aValue = a[sortField as keyof Expense];
+    const bValue = b[sortField as keyof Expense];
+    const direction = sortDirection === 'asc' ? 1 : -1;
+
+    if (sortField === 'description' || sortField === 'frequency' || sortField === 'nextDue') {
+      return direction * String(aValue).localeCompare(String(bValue));
+    }
+    return direction * (Number(aValue) - Number(bValue));
   });
 
   const handleFilterChange = (event: SelectChangeEvent<Frequency>) => {
     const newFrequency = event.target.value as Frequency;
     saveFrequency(newFrequency);
   };
-
-  const filteredExpenses = sortedExpenses.filter(expense => 
-    expense.frequency === filterFrequency || filterFrequency === 'monthly'
-  );
 
   const calculateNextDue = (startDate: string, frequency: string) => {
     const today = new Date();
@@ -461,9 +459,9 @@ const Expenses = () => {
           <FormControl size="small" sx={{ minWidth: 120 }}>
             <InputLabel>Frequency</InputLabel>
             <Select
-              value={filterFrequency}
+              value={displayFrequency}
               label="Frequency"
-              onChange={handleFilterChange}
+              onChange={(e) => setDisplayFrequency(e.target.value as Frequency)}
             >
               {frequencies.map((freq) => (
                 <MenuItem key={freq.value} value={freq.value}>
@@ -480,7 +478,7 @@ const Expenses = () => {
               setFormData({
                 description: "",
                 amount: "",
-                frequency: filterFrequency,
+                frequency: displayFrequency,
                 startDate: format(new Date(), "yyyy-MM-dd"),
                 endDate: "",
                 accountId: "",
@@ -505,87 +503,58 @@ const Expenses = () => {
           <CircularProgress />
         </Box>
       ) : (
-        <TableContainer
-          component={Paper}
-          sx={{
-            display: 'inline-block',
-            minWidth: '100%',
-            maxWidth: 'fit-content'
-          }}
-        >
+        <TableContainer component={Paper}>
           <Table>
             <TableHead>
               <TableRow>
                 <TableCell>Actions</TableCell>
-                <TableCell onClick={() => handleSort("description")} style={{ cursor: "pointer" }}>
-                  Description {sortField === "description" && (sortDirection === "asc" ? "↑" : "↓")}
+                <TableCell onClick={() => handleSort('description')} style={{ cursor: 'pointer' }}>
+                  Description {sortField === 'description' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </TableCell>
-                <TableCell onClick={() => handleSort("amount")} style={{ cursor: "pointer" }}>
-                  Amount {sortField === "amount" && (sortDirection === "asc" ? "↑" : "↓")}
+                <TableCell onClick={() => handleSort('amount')} style={{ cursor: 'pointer' }}>
+                  Amount {sortField === 'amount' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </TableCell>
-                <TableCell onClick={() => handleSort("frequency")} style={{ cursor: "pointer" }}>
-                  Frequency {sortField === "frequency" && (sortDirection === "asc" ? "↑" : "↓")}
+                <TableCell onClick={() => handleSort('frequency')} style={{ cursor: 'pointer' }}>
+                  Frequency {sortField === 'frequency' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </TableCell>
-                <TableCell onClick={() => handleSort("account")} style={{ cursor: "pointer" }}>
-                  Account {sortField === "account" && (sortDirection === "asc" ? "↑" : "↓")}
+                <TableCell onClick={() => handleSort('nextDue')} style={{ cursor: 'pointer' }}>
+                  Next Due {sortField === 'nextDue' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </TableCell>
-                <TableCell onClick={() => handleSort("nextDue")} style={{ cursor: "pointer" }}>
-                  Next Due {sortField === "nextDue" && (sortDirection === "asc" ? "↑" : "↓")}
+                <TableCell onClick={() => handleSort('percentage')} style={{ cursor: 'pointer' }}>
+                  % {sortField === 'percentage' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </TableCell>
-                <TableCell onClick={() => handleSort("percentage")} style={{ cursor: "pointer" }}>
-                  % {sortField === "percentage" && (sortDirection === "asc" ? "↑" : "↓")}
-                </TableCell>
-                <TableCell onClick={() => handleSort("amountPerFrequency")} style={{ cursor: "pointer" }}>
-                  $ {sortField === "amountPerFrequency" && (sortDirection === "asc" ? "↑" : "↓")}
+                <TableCell onClick={() => handleSort('amountPerFrequency')} style={{ cursor: 'pointer' }} align="right">
+                  $(frequency) {sortField === 'amountPerFrequency' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {filteredExpenses.map((expense) => (
+              {sortedExpenses.map((expense) => (
                 <TableRow key={expense.id}>
                   <TableCell>
-                    <Box sx={{ display: 'flex', gap: 1 }}>
-                      <IconButton
-                        size="small"
-                        onClick={() => handleOpen(expense)}
-                        sx={{ color: 'primary.main' }}
-                      >
-                        <EditIcon fontSize="small" />
-                      </IconButton>
-                      <IconButton
-                        size="small"
-                        onClick={() => handleDeleteClick(expense.id)}
-                        sx={{ color: 'error.main' }}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Box>
+                    <IconButton onClick={() => handleOpen(expense)} size="small" color="primary">
+                      <EditIcon />
+                    </IconButton>
+                    <IconButton onClick={() => handleDeleteClick(expense.id)} size="small" color="error">
+                      <DeleteIcon />
+                    </IconButton>
                   </TableCell>
                   <TableCell>{expense.description}</TableCell>
-                  <TableCell>${Number(expense.amount).toFixed(2)}</TableCell>
+                  <TableCell>${expense.amount.toFixed(2)}</TableCell>
                   <TableCell>{expense.frequency}</TableCell>
-                  <TableCell>
-                    {accounts.find((acc) => acc.id === expense.accountId)?.name || "Unknown"}
-                  </TableCell>
-                  <TableCell>
-                    {expense.nextDue ? format(calculateNextDue(expense.nextDue, expense.frequency), "MMM d") : "N/A"}
-                  </TableCell>
-                  <TableCell>
-                    {((Number(expense.amount) / totalExpenses) * 100).toFixed(1)}%
-                  </TableCell>
-                  <TableCell>
-                    ${calculateFrequencyAmount(expense.amount.toString(), expense.frequency, formData.frequency).toFixed(2)}
+                  <TableCell>{format(new Date(expense.nextDue), 'MMM d, yyyy')}</TableCell>
+                  <TableCell>{calculatePercentage(expense.amount, expense.frequency).toFixed(1)}%</TableCell>
+                  <TableCell align="right">
+                    {formatCurrency(calculateFrequencyAmount(expense.amount, expense.frequency, displayFrequency))}
                   </TableCell>
                 </TableRow>
               ))}
               <TableRow>
-                <TableCell colSpan={6} align="right" sx={{ fontWeight: 'bold', color: 'text.primary' }}>
-                  Total:
+                <TableCell colSpan={6} align="right">
+                  <strong>Total</strong>
                 </TableCell>
-                <TableCell colSpan={2} align="right" sx={{ fontWeight: 'bold', color: 'text.primary' }}>
-                  {formatCurrency(
-                    expenses.reduce((sum, expense) => sum + calculateFrequencyAmount(expense.amount.toString(), expense.frequency, filterFrequency), 0)
-                  )}
+                <TableCell align="right">
+                  <strong>{formatCurrency(totalExpenses)}</strong>
                 </TableCell>
               </TableRow>
             </TableBody>
