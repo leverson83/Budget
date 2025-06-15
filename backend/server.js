@@ -405,7 +405,8 @@ app.get('/api/settings', (req, res) => {
         quarterly: 1,
         yearly: 1
       },
-      ignoreWeekends: false
+      ignoreWeekends: false,
+      frequency: 'monthly'
     };
 
     // Convert rows to object
@@ -426,6 +427,49 @@ app.get('/api/settings', (req, res) => {
 
     res.json(mergedSettings);
   });
+});
+
+// Get frequency setting
+app.get('/api/settings/frequency', (req, res) => {
+  db.get('SELECT value FROM settings WHERE key = ?', ['frequency'], (err, row) => {
+    if (err) {
+      console.error('Error fetching frequency setting:', err);
+      res.status(500).json({ error: 'Failed to fetch frequency setting' });
+      return;
+    }
+    // Always return a valid frequency, defaulting to 'monthly' if not found
+    res.json({ frequency: row?.value || 'monthly' });
+  });
+});
+
+// Update frequency setting
+app.post('/api/settings/frequency', (req, res) => {
+  const { frequency } = req.body;
+  
+  if (!frequency) {
+    res.status(400).json({ error: 'Frequency is required' });
+    return;
+  }
+
+  // Validate frequency value
+  const validFrequencies = ['weekly', 'fortnightly', 'monthly', 'quarterly', 'yearly'];
+  if (!validFrequencies.includes(frequency)) {
+    res.status(400).json({ error: 'Invalid frequency value' });
+    return;
+  }
+
+  db.run(
+    'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+    ['frequency', frequency],
+    function(err) {
+      if (err) {
+        console.error('Error updating frequency setting:', err);
+        res.status(500).json({ error: 'Failed to save frequency setting' });
+        return;
+      }
+      res.json({ frequency });
+    }
+  );
 });
 
 app.put('/api/settings', (req, res) => {
@@ -553,6 +597,17 @@ app.post('/api/tags', (req, res) => {
   });
 });
 
+// Add error handling middleware before app.listen
+app.use((req, res, next) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+// Start server
 app.listen(port, () => {
   console.log(`Server running at http://localhost:${port}`);
 }); 

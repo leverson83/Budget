@@ -224,52 +224,53 @@ const Accounts = () => {
         </Button>
       </Box>
 
-      <TableContainer 
-        component={Paper} 
-        sx={{ 
-          flex: 1,
-          overflow: 'auto'
+      <TableContainer
+        component={Paper}
+        sx={{
+          display: 'inline-block',
+          minWidth: '100%',
+          maxWidth: 'fit-content'
         }}
       >
         <Table>
           <TableHead>
             <TableRow>
+              <TableCell>Actions</TableCell>
               <TableCell>Name</TableCell>
               <TableCell>Bank</TableCell>
               <TableCell align="right">Current Balance</TableCell>
               <TableCell align="right">Required Balance</TableCell>
               <TableCell align="right">Diff</TableCell>
               <TableCell>Primary</TableCell>
-              <TableCell align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {accounts.map((account) => (
               <TableRow key={account.id}>
+                <TableCell>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <IconButton
+                      size="small"
+                      onClick={() => handleOpen(account)}
+                      sx={{ color: 'primary.main' }}
+                    >
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                    <IconButton
+                      size="small"
+                      onClick={() => handleDeleteClick(account.id)}
+                      sx={{ color: 'error.main' }}
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
+                </TableCell>
                 <TableCell>{account.name}</TableCell>
                 <TableCell>{account.bank}</TableCell>
                 <TableCell align="right">${(account.currentBalance ?? 0).toFixed(2)}</TableCell>
                 <TableCell align="right">${(account.requiredBalance ?? 0).toFixed(2)}</TableCell>
                 <TableCell align="right">${(account.diff ?? 0).toFixed(2)}</TableCell>
                 <TableCell>{account.isPrimary ? 'Yes' : 'No'}</TableCell>
-                <TableCell align="right">
-                  <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-                    <IconButton
-                      size="small"
-                      onClick={() => handleOpen(account)}
-                      color="primary"
-                    >
-                      <EditIcon />
-                    </IconButton>
-                    <IconButton
-                      size="small"
-                      onClick={() => handleDeleteClick(account.id)}
-                      color="error"
-                    >
-                      <DeleteIcon />
-                    </IconButton>
-                  </Box>
-                </TableCell>
               </TableRow>
             ))}
           </TableBody>
