@@ -58,7 +58,8 @@ const Sidebar = () => {
       borderRight: '1px solid',
       borderColor: 'divider',
       display: 'flex',
-      flexDirection: 'column'
+      flexDirection: 'column',
+      overflowX: 'hidden'
     }}>
       <List>
         {menuItems.map((item) => (
@@ -122,6 +123,7 @@ const Sidebar = () => {
                 width: 240,
                 top: 0,
                 height: '100%',
+                overflowX: 'hidden',
                 transition: theme.transitions.create('transform', {
                   duration: theme.transitions.duration.enteringScreen,
                 }),
@@ -141,7 +143,8 @@ const Sidebar = () => {
                 border: 'none',
                 bgcolor: 'background.paper',
                 borderRight: '1px solid',
-                borderColor: 'divider'
+                borderColor: 'divider',
+                overflowX: 'hidden'
               },
             }}
             open
