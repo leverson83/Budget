@@ -166,89 +166,142 @@ const Schedule = () => {
   }, []);
 
   const handlePrev = () => {
-    let newMonth = startMonth - 6;
-    let newYear = startYear;
-    while (newMonth < 0) {
-      newMonth += 12;
-      newYear--;
+    try {
+      const newDate = new Date(startYear, startMonth - 6, 1);
+      if (isNaN(newDate.getTime())) {
+        console.error('Invalid date calculated');
+        return;
+      }
+      setStartMonth(newDate.getMonth());
+      setStartYear(newDate.getFullYear());
+    } catch (error) {
+      console.error('Error in handlePrev:', error);
     }
-    setStartMonth(newMonth);
-    setStartYear(newYear);
   };
 
   const handleNext = () => {
-    let newMonth = startMonth + 6;
-    let newYear = startYear;
-    while (newMonth > 11) {
-      newMonth -= 12;
-      newYear++;
+    try {
+      const newDate = new Date(startYear, startMonth + 6, 1);
+      if (isNaN(newDate.getTime())) {
+        console.error('Invalid date calculated');
+        return;
+      }
+      setStartMonth(newDate.getMonth());
+      setStartYear(newDate.getFullYear());
+    } catch (error) {
+      console.error('Error in handleNext:', error);
     }
-    setStartMonth(newMonth);
-    setStartYear(newYear);
   };
 
   const getDueDatesForMonth = (date: Date) => {
-    const start = startOfMonth(date);
-    const end = endOfMonth(date);
-    const days = eachDayOfInterval({ start, end });
-    const dueDates = new Map<string, { incomes: IncomeEntry[], expenses: ExpenseEntry[] }>();
-
-    // Helper function to add dates for a frequency
-    const addDatesForFrequency = (
-      startDate: Date,
-      frequency: string,
-      item: IncomeEntry | ExpenseEntry,
-      isIncome: boolean
-    ) => {
-      const currentDate = new Date(startDate);
-      const endOfYear = new Date(date.getFullYear(), 11, 31); // Look ahead until end of year
-
-      while (currentDate <= endOfYear) {
-        if (isSameMonth(currentDate, date)) {
-          const dateStr = currentDate.toISOString().split('T')[0];
-          const existing = dueDates.get(dateStr) || { incomes: [], expenses: [] };
-          
-          if (isIncome) {
-            dueDates.set(dateStr, { ...existing, incomes: [...existing.incomes, item as IncomeEntry] });
-          } else {
-            dueDates.set(dateStr, { ...existing, expenses: [...existing.expenses, item as ExpenseEntry] });
-          }
-        }
-
-        // Add next occurrence based on frequency
-        switch (frequency) {
-          case 'weekly':
-            currentDate.setDate(currentDate.getDate() + 7);
-            break;
-          case 'fortnightly':
-            currentDate.setDate(currentDate.getDate() + 14);
-            break;
-          case 'monthly':
-            currentDate.setMonth(currentDate.getMonth() + 1);
-            break;
-          case 'quarterly':
-            currentDate.setMonth(currentDate.getMonth() + 3);
-            break;
-          case 'yearly':
-            currentDate.setFullYear(currentDate.getFullYear() + 1);
-            break;
-        }
+    try {
+      if (isNaN(date.getTime())) {
+        console.error('Invalid date passed to getDueDatesForMonth');
+        return new Map();
       }
-    };
 
-    // Process incomes
-    incomes.forEach(income => {
-      const startDate = new Date(income.nextDue);
-      addDatesForFrequency(startDate, income.frequency, income, true);
-    });
+      const start = startOfMonth(date);
+      const end = endOfMonth(date);
+      const days = eachDayOfInterval({ start, end });
+      const dueDates = new Map<string, { incomes: IncomeEntry[], expenses: ExpenseEntry[] }>();
 
-    // Process expenses
-    expenses.forEach(expense => {
-      const startDate = new Date(expense.nextDue);
-      addDatesForFrequency(startDate, expense.frequency, expense, false);
-    });
+      // Helper function to add dates for a frequency
+      const addDatesForFrequency = (
+        startDate: Date,
+        frequency: string,
+        item: IncomeEntry | ExpenseEntry,
+        isIncome: boolean
+      ) => {
+        try {
+          if (isNaN(startDate.getTime())) {
+            console.error('Invalid startDate in addDatesForFrequency');
+            return;
+          }
 
-    return dueDates;
+          const currentDate = new Date(startDate);
+          const endDate = new Date(date.getFullYear(), date.getMonth() + 6, 0);
+
+          if (isNaN(endDate.getTime())) {
+            console.error('Invalid endDate calculated');
+            return;
+          }
+
+          while (currentDate <= endDate) {
+            if (isSameMonth(currentDate, date)) {
+              const dateStr = currentDate.toISOString().split('T')[0];
+              const existing = dueDates.get(dateStr) || { incomes: [], expenses: [] };
+              
+              if (isIncome) {
+                dueDates.set(dateStr, { ...existing, incomes: [...existing.incomes, item as IncomeEntry] });
+              } else {
+                dueDates.set(dateStr, { ...existing, expenses: [...existing.expenses, item as ExpenseEntry] });
+              }
+            }
+
+            // Add next occurrence based on frequency
+            const nextDate = new Date(currentDate);
+            switch (frequency) {
+              case 'weekly':
+                nextDate.setDate(nextDate.getDate() + 7);
+                break;
+              case 'fortnightly':
+                nextDate.setDate(nextDate.getDate() + 14);
+                break;
+              case 'monthly':
+                nextDate.setMonth(nextDate.getMonth() + 1);
+                break;
+              case 'quarterly':
+                nextDate.setMonth(nextDate.getMonth() + 3);
+                break;
+              case 'yearly':
+                nextDate.setFullYear(nextDate.getFullYear() + 1);
+                break;
+              default:
+                console.error('Invalid frequency:', frequency);
+                return;
+            }
+
+            if (isNaN(nextDate.getTime())) {
+              console.error('Invalid nextDate calculated');
+              return;
+            }
+
+            currentDate.setTime(nextDate.getTime());
+          }
+        } catch (error) {
+          console.error('Error in addDatesForFrequency:', error);
+        }
+      };
+
+      // Process incomes
+      incomes.forEach((income: IncomeEntry) => {
+        try {
+          const startDate = new Date(income.nextDue);
+          if (!isNaN(startDate.getTime())) {
+            addDatesForFrequency(startDate, income.frequency, income, true);
+          }
+        } catch (error) {
+          console.error('Error processing income:', error);
+        }
+      });
+
+      // Process expenses
+      expenses.forEach((expense: ExpenseEntry) => {
+        try {
+          const startDate = new Date(expense.nextDue);
+          if (!isNaN(startDate.getTime())) {
+            addDatesForFrequency(startDate, expense.frequency, expense, false);
+          }
+        } catch (error) {
+          console.error('Error processing expense:', error);
+        }
+      });
+
+      return dueDates;
+    } catch (error) {
+      console.error('Error in getDueDatesForMonth:', error);
+      return new Map();
+    }
   };
 
   const renderDay = (day: Date) => {
@@ -356,16 +409,44 @@ const Schedule = () => {
 
   return (
     <Box sx={{ p: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <IconButton onClick={handlePrev} size="large">
+          <ArrowBackIosNewIcon />
+        </IconButton>
+        <Typography variant="h5">
+          {monthNames[startMonth]} {startYear} - {monthNames[(startMonth + 5) % 12]} {(startMonth + 5) > 11 ? startYear + 1 : startYear}
+        </Typography>
+        <IconButton onClick={handleNext} size="large">
+          <ArrowForwardIosIcon />
+        </IconButton>
+      </Box>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)', lg: 'repeat(3, 1fr)' }, gap: 3 }}>
         {months.map(({ month, year }) => {
           const dueDates = getDueDatesForMonth(new Date(year, month, 1));
           return (
             <Box key={`${year}-${month}`}>
-              <Paper sx={{ p: 2 }}>
+              <Paper sx={{ p: 2, height: '400px' }}>
                 <Typography variant="h6" gutterBottom>
                   {monthNames[month]} {year}
                 </Typography>
                 <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1 }}>
+                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+                    <Typography
+                      key={day}
+                      variant="caption"
+                      sx={{
+                        textAlign: 'center',
+                        fontWeight: 'bold',
+                        color: 'text.secondary',
+                        mb: 1
+                      }}
+                    >
+                      {day}
+                    </Typography>
+                  ))}
+                  {Array(new Date(year, month, 1).getDay()).fill(null).map((_, index) => (
+                    <Box key={`empty-${index}`} />
+                  ))}
                   {Array(getDaysInMonth(month, year)).fill(null).map((_, day) => {
                     const date = new Date(year, month, day + 1);
                     return (
