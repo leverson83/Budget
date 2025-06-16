@@ -31,7 +31,8 @@ import {
   Stack,
   OutlinedInput,
   ListItemText,
-  Checkbox
+  Checkbox,
+  Grid
 } from "@mui/material";
 import type { SelectChangeEvent } from '@mui/material/Select';
 import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Info as InfoIcon } from "@mui/icons-material";
@@ -40,6 +41,8 @@ import { API_URL, frequencies, type Frequency } from "../config";
 import axios from "axios";
 import { v4 as uuidv4 } from 'uuid';
 import { useFrequency } from '../contexts/FrequencyContext';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import { LocalizationProvider, DatePicker } from '@mui/x-date-pickers';
 
 interface Expense {
   id: string;
@@ -510,25 +513,25 @@ const Expenses = () => {
   };
 
   const renderTags = (tags: string[]) => {
-    return tags.map((tag, index) => (
-      <Chip
-        key={tag}
-        label={tag}
-        className="mr-1 mb-1"
-        disabled={false}
-        data-tag-index={index}
-        tabIndex={-1}
-        size="small"
-        sx={{
+    return tags.map((tag, index) => {
+      const props = {
+        label: tag,
+        className: "mr-1 mb-1",
+        disabled: false,
+        'data-tag-index': index,
+        tabIndex: -1,
+        size: "small" as const,
+        sx: {
           backgroundColor: getTagColor(tag),
           color: '#ffffff',
           '&:hover': {
             backgroundColor: getTagColor(tag),
             opacity: 0.8
           }
-        }}
-      />
-    ));
+        }
+      };
+      return <Chip key={tag} {...props} />;
+    });
   };
 
   const renderTagFilter = () => {
@@ -542,12 +545,11 @@ const Expenses = () => {
           input={<OutlinedInput label="Filter by Tag" />}
           renderValue={(selected) => (
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-              {selected.map((value) => (
-                <Chip
-                  key={value}
-                  label={value}
-                  size="small"
-                  sx={{
+              {selected.map((value) => {
+                const props = {
+                  label: value,
+                  size: "small" as const,
+                  sx: {
                     backgroundColor: getTagColor(value),
                     color: '#ffffff',
                     fontWeight: 'medium',
@@ -555,9 +557,10 @@ const Expenses = () => {
                       backgroundColor: getTagColor(value),
                       opacity: 0.8
                     }
-                  }}
-                />
-              ))}
+                  }
+                };
+                return <Chip key={value} {...props} />;
+              })}
             </Box>
           )}
           sx={{
@@ -749,7 +752,7 @@ const Expenses = () => {
                   onClick={() => handleSort('frequency')}
                   style={{ cursor: 'pointer' }}
                 >
-                  {frequency.charAt(0).toUpperCase() + frequency.slice(1)} {sortField === 'frequency' && (sortDirection === 'asc' ? '↑' : '↓')}
+                  Frequency {sortField === 'frequency' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </TableCell>
                 <TableCell onClick={() => handleSort('nextDue')} style={{ cursor: 'pointer' }}>
                   Next Due {sortField === 'nextDue' && (sortDirection === 'asc' ? '↑' : '↓')}
@@ -761,8 +764,8 @@ const Expenses = () => {
                 <TableCell onClick={() => handleSort('percentage')} style={{ cursor: 'pointer' }}>
                   % {sortField === 'percentage' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </TableCell>
-                <TableCell onClick={() => handleSort('amountPerFrequency')} style={{ cursor: 'pointer' }} align="right">
-                  $({frequency}) {sortField === 'amountPerFrequency' && (sortDirection === 'asc' ? '↑' : '↓')}
+                <TableCell onClick={() => handleSort('amountPerFrequency')} style={{ cursor: 'pointer' }}>
+                  $({frequencies.find(f => f.value === frequency)?.label || frequency}) {sortField === 'amountPerFrequency' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </TableCell>
               </TableRow>
             </TableHead>
@@ -779,7 +782,24 @@ const Expenses = () => {
                       </IconButton>
                     </Box>
                   </TableCell>
-                  <TableCell>{expense.description}</TableCell>
+                  <TableCell>
+                    <Tooltip title={expense.notes || ''} arrow placement="top">
+                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                        {expense.description}
+                        {expense.notes && (
+                          <Box 
+                            sx={{ 
+                              width: '25%', 
+                              height: '2px', 
+                              backgroundColor: 'warning.main',
+                              marginTop: 0.5,
+                              borderRadius: '1px'
+                            }} 
+                          />
+                        )}
+                      </Box>
+                    </Tooltip>
+                  </TableCell>
                   <TableCell>${expense.amount.toFixed(2)}</TableCell>
                   <TableCell>{expense.frequency}</TableCell>
                   <TableCell>{format(new Date(expense.nextDue), 'MMM d, yyyy')}</TableCell>
