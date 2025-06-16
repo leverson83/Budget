@@ -7,7 +7,7 @@ import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew';
 import ArrowForwardIosIcon from '@mui/icons-material/ArrowForwardIos';
 import Tooltip from '@mui/material/Tooltip';
 import Grid from '@mui/material/Grid';
-import { eachDayOfInterval, format, isSameMonth, isToday, startOfMonth, endOfMonth, addDays } from 'date-fns';
+import { eachDayOfInterval, format, isSameMonth, isToday, startOfMonth, endOfMonth, addDays, addWeeks, addMonths, addYears } from 'date-fns';
 import CircularProgress from '@mui/material/CircularProgress';
 import Alert from '@mui/material/Alert';
 
@@ -197,102 +197,96 @@ const Schedule = () => {
     }
   };
 
-  const getDueDatesForMonth = (date: Date) => {
-    try {
-      if (isNaN(date.getTime())) {
-        console.error('Invalid date passed to getDueDatesForMonth');
-        return new Map();
-      }
+  const addDatesForFrequency = (startDate: Date, frequency: string): Date[] => {
+    const dates: Date[] = [];
+    let currentDate = new Date(startDate);
+    const endDate = addYears(currentDate, 1);
 
-      const start = startOfMonth(date);
-      const end = endOfMonth(date);
-      const days = eachDayOfInterval({ start, end });
-      const dueDates = new Map<string, { incomes: IncomeEntry[], expenses: ExpenseEntry[] }>();
-
-      // Helper function to add dates for a frequency
-      const addDatesForFrequency = (date: Date, frequency: string): Date[] => {
-        const dates: Date[] = [];
-        let currentDate = new Date(date);
-
-        switch (frequency) {
-          case 'daily':
-            for (let i = 0; i < 7; i++) {
-              dates.push(new Date(currentDate));
-              currentDate.setDate(currentDate.getDate() + 1);
-            }
-            break;
-          case 'weekly':
-            dates.push(new Date(currentDate));
-            break;
-          case 'biweekly':
-            dates.push(new Date(currentDate));
-            currentDate.setDate(currentDate.getDate() + 14);
-            dates.push(new Date(currentDate));
-            break;
-          case 'monthly':
-            dates.push(new Date(currentDate));
-            currentDate.setMonth(currentDate.getMonth() + 1);
-            dates.push(new Date(currentDate));
-            break;
-          case 'quarterly':
-            dates.push(new Date(currentDate));
-            currentDate.setMonth(currentDate.getMonth() + 3);
-            dates.push(new Date(currentDate));
-            break;
-          case 'annually':
-            dates.push(new Date(currentDate));
-            currentDate.setFullYear(currentDate.getFullYear() + 1);
-            dates.push(new Date(currentDate));
-            break;
-          default:
-            console.warn(`Invalid frequency: ${frequency}`);
-            break;
+    switch (frequency) {
+      case 'daily':
+        while (currentDate <= endDate) {
+          dates.push(new Date(currentDate));
+          currentDate = addDays(currentDate, 1);
         }
-
-        return dates;
-      };
-
-      // Process incomes
-      incomes.forEach((income: IncomeEntry) => {
-        try {
-          const startDate = new Date(income.nextDue);
-          if (!isNaN(startDate.getTime())) {
-            addDatesForFrequency(startDate, income.frequency).forEach((date: Date) => {
-              if (isSameMonth(date, date)) {
-                const dateStr = date.toISOString().split('T')[0];
-                const existing = dueDates.get(dateStr) || { incomes: [], expenses: [] };
-                dueDates.set(dateStr, { ...existing, incomes: [...existing.incomes, income] });
-              }
-            });
-          }
-        } catch (error) {
-          console.error('Error processing income:', error);
+        break;
+      case 'weekly':
+        while (currentDate <= endDate) {
+          dates.push(new Date(currentDate));
+          currentDate = addWeeks(currentDate, 1);
         }
-      });
-
-      // Process expenses
-      expenses.forEach((expense: ExpenseEntry) => {
-        try {
-          const startDate = new Date(expense.nextDue);
-          if (!isNaN(startDate.getTime())) {
-            addDatesForFrequency(startDate, expense.frequency).forEach((date: Date) => {
-              if (isSameMonth(date, date)) {
-                const dateStr = date.toISOString().split('T')[0];
-                const existing = dueDates.get(dateStr) || { incomes: [], expenses: [] };
-                dueDates.set(dateStr, { ...existing, expenses: [...existing.expenses, expense] });
-              }
-            });
-          }
-        } catch (error) {
-          console.error('Error processing expense:', error);
+        break;
+      case 'fortnightly':
+        while (currentDate <= endDate) {
+          dates.push(new Date(currentDate));
+          currentDate = addWeeks(currentDate, 2);
         }
-      });
-
-      return dueDates;
-    } catch (error) {
-      console.error('Error in getDueDatesForMonth:', error);
-      return new Map();
+        break;
+      case 'monthly':
+        while (currentDate <= endDate) {
+          dates.push(new Date(currentDate));
+          currentDate = addMonths(currentDate, 1);
+        }
+        break;
+      case 'quarterly':
+        while (currentDate <= endDate) {
+          dates.push(new Date(currentDate));
+          currentDate = addMonths(currentDate, 3);
+        }
+        break;
+      case 'annually':
+        while (currentDate <= endDate) {
+          dates.push(new Date(currentDate));
+          currentDate = addYears(currentDate, 1);
+        }
+        break;
+      default:
+        console.warn(`Invalid frequency: ${frequency}`);
+        break;
     }
+
+    return dates;
+  };
+
+  const getDueDatesForMonth = (date: Date) => {
+    const dueDates = new Map<string, { incomes: IncomeEntry[]; expenses: ExpenseEntry[] }>();
+
+    // Process incomes
+    incomes.forEach((income) => {
+      try {
+        const startDate = new Date(income.nextDue);
+        if (!isNaN(startDate.getTime())) {
+          addDatesForFrequency(startDate, income.frequency).forEach((date) => {
+            if (isSameMonth(date, date)) {
+              const dateStr = date.toISOString().split('T')[0];
+              const existing = dueDates.get(dateStr) || { incomes: [], expenses: [] };
+              dueDates.set(dateStr, { ...existing, incomes: [...existing.incomes, income] });
+            }
+          });
+        }
+      } catch (error) {
+        console.error('Error processing income:', error);
+      }
+    });
+
+    // Process expenses
+    expenses.forEach((expense) => {
+      try {
+        const startDate = new Date(expense.nextDue);
+        if (!isNaN(startDate.getTime())) {
+          addDatesForFrequency(startDate, expense.frequency).forEach((date) => {
+            if (isSameMonth(date, date)) {
+              const dateStr = date.toISOString().split('T')[0];
+              const existing = dueDates.get(dateStr) || { incomes: [], expenses: [] };
+              dueDates.set(dateStr, { ...existing, expenses: [...existing.expenses, expense] });
+            }
+          });
+        }
+      } catch (error) {
+        console.error('Error processing expense:', error);
+      }
+    });
+
+    return dueDates;
   };
 
   const renderDay = (day: Date) => {
