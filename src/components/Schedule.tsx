@@ -20,18 +20,22 @@ interface IncomeEntry {
   id: string;
   description: string;
   amount: number;
-  frequency: 'weekly' | 'fortnightly' | 'monthly' | 'quarterly' | 'yearly';
+  frequency: string;
   nextDue: string;
-  applyFuzziness: boolean;
+  notes?: string;
+  tags?: string[];
+  accountId: number;
 }
 
 interface ExpenseEntry {
   id: string;
   description: string;
   amount: number;
-  frequency: 'weekly' | 'fortnightly' | 'monthly' | 'quarterly' | 'yearly';
+  frequency: string;
   nextDue: string;
-  applyFuzziness: boolean;
+  notes?: string;
+  tags?: string[];
+  accountId: number;
 }
 
 interface Settings {
@@ -206,71 +210,46 @@ const Schedule = () => {
       const dueDates = new Map<string, { incomes: IncomeEntry[], expenses: ExpenseEntry[] }>();
 
       // Helper function to add dates for a frequency
-      const addDatesForFrequency = (
-        startDate: Date,
-        frequency: string,
-        item: IncomeEntry | ExpenseEntry,
-        isIncome: boolean
-      ) => {
-        try {
-          if (isNaN(startDate.getTime())) {
-            console.error('Invalid startDate in addDatesForFrequency');
-            return;
-          }
+      const addDatesForFrequency = (date: Date, frequency: string): Date[] => {
+        const dates: Date[] = [];
+        let currentDate = new Date(date);
 
-          const currentDate = new Date(startDate);
-          const endDate = new Date(date.getFullYear(), date.getMonth() + 6, 0);
-
-          if (isNaN(endDate.getTime())) {
-            console.error('Invalid endDate calculated');
-            return;
-          }
-
-          while (currentDate <= endDate) {
-            if (isSameMonth(currentDate, date)) {
-              const dateStr = currentDate.toISOString().split('T')[0];
-              const existing = dueDates.get(dateStr) || { incomes: [], expenses: [] };
-              
-              if (isIncome) {
-                dueDates.set(dateStr, { ...existing, incomes: [...existing.incomes, item as IncomeEntry] });
-              } else {
-                dueDates.set(dateStr, { ...existing, expenses: [...existing.expenses, item as ExpenseEntry] });
-              }
+        switch (frequency) {
+          case 'daily':
+            for (let i = 0; i < 7; i++) {
+              dates.push(new Date(currentDate));
+              currentDate.setDate(currentDate.getDate() + 1);
             }
-
-            // Add next occurrence based on frequency
-            const nextDate = new Date(currentDate);
-            switch (frequency) {
-              case 'weekly':
-                nextDate.setDate(nextDate.getDate() + 7);
-                break;
-              case 'fortnightly':
-                nextDate.setDate(nextDate.getDate() + 14);
-                break;
-              case 'monthly':
-                nextDate.setMonth(nextDate.getMonth() + 1);
-                break;
-              case 'quarterly':
-                nextDate.setMonth(nextDate.getMonth() + 3);
-                break;
-              case 'yearly':
-                nextDate.setFullYear(nextDate.getFullYear() + 1);
-                break;
-              default:
-                console.error('Invalid frequency:', frequency);
-                return;
-            }
-
-            if (isNaN(nextDate.getTime())) {
-              console.error('Invalid nextDate calculated');
-              return;
-            }
-
-            currentDate.setTime(nextDate.getTime());
-          }
-        } catch (error) {
-          console.error('Error in addDatesForFrequency:', error);
+            break;
+          case 'weekly':
+            dates.push(new Date(currentDate));
+            break;
+          case 'biweekly':
+            dates.push(new Date(currentDate));
+            currentDate.setDate(currentDate.getDate() + 14);
+            dates.push(new Date(currentDate));
+            break;
+          case 'monthly':
+            dates.push(new Date(currentDate));
+            currentDate.setMonth(currentDate.getMonth() + 1);
+            dates.push(new Date(currentDate));
+            break;
+          case 'quarterly':
+            dates.push(new Date(currentDate));
+            currentDate.setMonth(currentDate.getMonth() + 3);
+            dates.push(new Date(currentDate));
+            break;
+          case 'annually':
+            dates.push(new Date(currentDate));
+            currentDate.setFullYear(currentDate.getFullYear() + 1);
+            dates.push(new Date(currentDate));
+            break;
+          default:
+            console.warn(`Invalid frequency: ${frequency}`);
+            break;
         }
+
+        return dates;
       };
 
       // Process incomes
@@ -278,7 +257,13 @@ const Schedule = () => {
         try {
           const startDate = new Date(income.nextDue);
           if (!isNaN(startDate.getTime())) {
-            addDatesForFrequency(startDate, income.frequency, income, true);
+            addDatesForFrequency(startDate, income.frequency).forEach((date: Date) => {
+              if (isSameMonth(date, date)) {
+                const dateStr = date.toISOString().split('T')[0];
+                const existing = dueDates.get(dateStr) || { incomes: [], expenses: [] };
+                dueDates.set(dateStr, { ...existing, incomes: [...existing.incomes, income] });
+              }
+            });
           }
         } catch (error) {
           console.error('Error processing income:', error);
@@ -290,7 +275,13 @@ const Schedule = () => {
         try {
           const startDate = new Date(expense.nextDue);
           if (!isNaN(startDate.getTime())) {
-            addDatesForFrequency(startDate, expense.frequency, expense, false);
+            addDatesForFrequency(startDate, expense.frequency).forEach((date: Date) => {
+              if (isSameMonth(date, date)) {
+                const dateStr = date.toISOString().split('T')[0];
+                const existing = dueDates.get(dateStr) || { incomes: [], expenses: [] };
+                dueDates.set(dateStr, { ...existing, expenses: [...existing.expenses, expense] });
+              }
+            });
           }
         } catch (error) {
           console.error('Error processing expense:', error);

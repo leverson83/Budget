@@ -7,6 +7,7 @@ import Schedule from './components/Schedule';
 import Settings from './components/Settings';
 import Expenses from './components/Expenses';
 import Accounts from './components/Accounts';
+import Planning from './components/Planning';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import { FrequencyProvider } from './contexts/FrequencyContext';
 
@@ -54,6 +55,10 @@ const router = createBrowserRouter(
       element: <Schedule />,
     },
     {
+      path: "/planning",
+      element: <Planning />,
+    },
+    {
       path: "/settings",
       element: <Settings />,
     },
@@ -88,6 +93,7 @@ function App() {
                 <Route path="/expenses" element={<Expenses />} />
                 <Route path="/accounts" element={<Accounts />} />
                 <Route path="/schedule" element={<Schedule />} />
+                <Route path="/planning" element={<Planning />} />
                 <Route path="/settings" element={<Settings />} />
               </Routes>
             </Box>

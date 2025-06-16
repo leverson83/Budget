@@ -20,6 +20,7 @@ import {
   CalendarMonth as CalendarIcon,
   Settings as SettingsIcon,
   AccountBalanceWallet as AccountBalanceWalletIcon,
+  Timeline as TimelineIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 
@@ -29,6 +30,7 @@ const menuItems = [
   { text: 'Expenses', icon: <AccountBalanceIcon />, path: '/expenses' },
   { text: 'Accounts', icon: <AccountBalanceWalletIcon />, path: '/accounts' },
   { text: 'Schedule', icon: <CalendarIcon />, path: '/schedule' },
+  { text: 'Planning', icon: <TimelineIcon />, path: '/planning' },
 ];
 
 const Sidebar = () => {

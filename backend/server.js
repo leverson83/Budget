@@ -43,7 +43,7 @@ const db = new sqlite3.Database(path.join(__dirname, 'budget.db'), (err) => {
           amount REAL NOT NULL,
           frequency TEXT NOT NULL,
           nextDue TEXT NOT NULL,
-          applyFuzziness BOOLEAN DEFAULT 0,
+          applyFuzziness INTEGER DEFAULT 0,
           notes TEXT,
           accountId INTEGER,
           FOREIGN KEY (accountId) REFERENCES accounts(id)
