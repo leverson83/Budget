@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Box, Typography, Paper, CircularProgress, Alert, Select, MenuItem, FormControl, InputLabel, Grid } from '@mui/material';
+import { Box, Typography, Paper, CircularProgress, Alert, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
+import { Grid } from '@mui/material';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -44,11 +45,13 @@ interface ExpenseEntry {
   tags: string[];
 }
 
-const formatCurrency = (amount: number) => {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-  }).format(amount);
+const formatCurrency = (amount: number, noCents: boolean = false): string => {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "AUD",
+    minimumFractionDigits: noCents ? 0 : 2,
+    maximumFractionDigits: noCents ? 0 : 2,
+  }).format(amount).replace('A$', '$');
 };
 
 const Dashboard = () => {
@@ -216,16 +219,24 @@ const Dashboard = () => {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4">
+      <Box sx={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        mb: 4,
+        flexWrap: 'wrap',
+        gap: 2
+      }}>
+        <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
           Dashboard
         </Typography>
-        <FormControl sx={{ minWidth: 120 }}>
-          <InputLabel>Frequency</InputLabel>
+        <FormControl sx={{ minWidth: 150 }}>
+          <InputLabel>Display Frequency</InputLabel>
           <Select
             value={displayFrequency}
-            label="Frequency"
+            label="Display Frequency"
             onChange={(e) => setDisplayFrequency(e.target.value as Frequency)}
+            size="small"
           >
             {frequencies.map((freq) => (
               <MenuItem key={freq.value} value={freq.value}>
@@ -239,32 +250,68 @@ const Dashboard = () => {
       {/* Summary Cards Row */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
         <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h6" color="text.secondary" gutterBottom>
+          <Paper 
+            elevation={2}
+            sx={{ 
+              p: 3, 
+              textAlign: 'center',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              bgcolor: 'success.light',
+              color: 'success.contrastText'
+            }}
+          >
+            <Typography variant="h6" gutterBottom>
               Total Income
             </Typography>
-            <Typography variant="h4" color="success.main">
-              ${totalIncome.toFixed(2)}
+            <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
+              {formatCurrency(totalIncome, true)}
             </Typography>
           </Paper>
         </Grid>
         <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h6" color="text.secondary" gutterBottom>
+          <Paper 
+            elevation={2}
+            sx={{ 
+              p: 3, 
+              textAlign: 'center',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              bgcolor: 'error.light',
+              color: 'error.contrastText'
+            }}
+          >
+            <Typography variant="h6" gutterBottom>
               Total Expenses
             </Typography>
-            <Typography variant="h4" color="error.main">
-              ${totalExpenses.toFixed(2)}
+            <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
+              {formatCurrency(totalExpenses, true)}
             </Typography>
           </Paper>
         </Grid>
         <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h6" color="text.secondary" gutterBottom>
+          <Paper 
+            elevation={2}
+            sx={{ 
+              p: 3, 
+              textAlign: 'center',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              bgcolor: netIncome >= 0 ? 'success.light' : 'error.light',
+              color: netIncome >= 0 ? 'success.contrastText' : 'error.contrastText'
+            }}
+          >
+            <Typography variant="h6" gutterBottom>
               Net Income
             </Typography>
-            <Typography variant="h4" color={netIncome >= 0 ? "success.main" : "error.main"}>
-              ${netIncome.toFixed(2)}
+            <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
+              {netIncome >= 0 ? '+' : ''}{formatCurrency(netIncome, true)}
             </Typography>
           </Paper>
         </Grid>
@@ -273,21 +320,43 @@ const Dashboard = () => {
       {/* Charts Grid */}
       <Grid container spacing={3}>
         <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="h6" gutterBottom>
+          <Paper 
+            elevation={2}
+            sx={{ 
+              p: 3,
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column'
+            }}
+          >
+            <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold' }}>
               Expenses by Category
             </Typography>
-            <Bar data={expensesByCategory} options={{
-              responsive: true,
-              plugins: {
-                legend: { display: false },
-                tooltip: {
-                  callbacks: {
-                    label: (context) => formatCurrency(context.raw as number)
+            <Box sx={{ flex: 1, minHeight: 300 }}>
+              <Bar 
+                data={expensesByCategory} 
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                      callbacks: {
+                        label: (context) => formatCurrency(context.raw as number)
+                      }
+                    }
+                  },
+                  scales: {
+                    y: {
+                      beginAtZero: true,
+                      ticks: {
+                        callback: (value) => formatCurrency(value as number)
+                      }
+                    }
                   }
-                }
-              }
-            }} />
+                }} 
+              />
+            </Box>
           </Paper>
         </Grid>
       </Grid>
