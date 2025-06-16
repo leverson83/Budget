@@ -27,10 +27,11 @@ import {
   InputLabel,
   Select,
 } from '@mui/material';
-import type { SelectChangeEvent } from '@mui/material';
+import type { SelectChangeEvent } from '@mui/material/Select';
 import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Info as InfoIcon } from '@mui/icons-material';
 import { format } from 'date-fns';
 import { API_URL, frequencies, type Frequency } from '../config';
+import { useFrequency } from '../contexts/FrequencyContext';
 
 interface IncomeEntry {
   id: string;
@@ -61,6 +62,7 @@ const formatDate = (date: string | Date) => {
 };
 
 const Income = () => {
+  const { frequency, setFrequency } = useFrequency();
   const [incomes, setIncomes] = useState<IncomeEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -70,7 +72,6 @@ const Income = () => {
   const [editingIncome, setEditingIncome] = useState<IncomeEntry | null>(null);
   const [sortField, setSortField] = useState<keyof IncomeEntry | "percentage" | "amountPerFrequency">("description");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-  const [displayFrequency, setDisplayFrequency] = useState<Frequency>("monthly");
   const [newIncome, setNewIncome] = useState({
     description: '',
     amount: '',
@@ -92,17 +93,6 @@ const Income = () => {
           ...income,
           nextDue: new Date(income.nextDue)
         })));
-
-        // Fetch saved frequency
-        const frequencyResponse = await fetch(`${API_URL}/settings/frequency`);
-        if (!frequencyResponse.ok) {
-          console.error('Failed to fetch frequency setting');
-          return;
-        }
-        const { frequency } = await frequencyResponse.json();
-        if (frequency) {
-          setDisplayFrequency(frequency);
-        }
       } catch (error) {
         console.error('Error fetching data:', error);
         setError('Failed to load data. Please try again.');
@@ -113,31 +103,6 @@ const Income = () => {
 
     fetchData();
   }, []);
-
-  const saveFrequency = async (newFrequency: Frequency) => {
-    try {
-      const response = await fetch(`${API_URL}/settings/frequency`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ frequency: newFrequency }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to save frequency setting');
-      }
-
-      const data = await response.json();
-      if (data.frequency) {
-        setDisplayFrequency(data.frequency);
-      }
-    } catch (error) {
-      console.error('Error saving frequency:', error);
-      setError(error instanceof Error ? error.message : 'Failed to save frequency setting');
-    }
-  };
 
   const handleOpen = (income?: IncomeEntry) => {
     if (income) {
@@ -290,8 +255,8 @@ const Income = () => {
       aValue = (Number(a.amount) / totalIncome) * 100;
       bValue = (Number(b.amount) / totalIncome) * 100;
     } else if (sortField === "amountPerFrequency") {
-      aValue = calculateFrequencyAmount(a.amount.toString(), a.frequency, displayFrequency);
-      bValue = calculateFrequencyAmount(b.amount.toString(), b.frequency, displayFrequency);
+      aValue = calculateFrequencyAmount(a.amount.toString(), a.frequency, frequency);
+      bValue = calculateFrequencyAmount(b.amount.toString(), b.frequency, frequency);
     }
 
     if (aValue instanceof Date && bValue instanceof Date) {
@@ -347,9 +312,8 @@ const Income = () => {
     }
   };
 
-  const handleFilterChange = (event: SelectChangeEvent<Frequency>) => {
-    const newFrequency = event.target.value as Frequency;
-    saveFrequency(newFrequency);
+  const handleFrequencyChange = (event: SelectChangeEvent) => {
+    setFrequency(event.target.value as Frequency);
   };
 
   if (loading) {
@@ -376,13 +340,13 @@ const Income = () => {
         <Typography variant="h4" component="h1">
           Income
         </Typography>
-        <Box sx={{ display: "flex", gap: 2 }}>
+        <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
           <FormControl size="small" sx={{ minWidth: 120 }}>
             <InputLabel>Frequency</InputLabel>
             <Select
-              value={displayFrequency}
+              value={frequency}
               label="Frequency"
-              onChange={handleFilterChange}
+              onChange={handleFrequencyChange}
             >
               {frequencies.map((freq) => (
                 <MenuItem key={freq.value} value={freq.value}>
@@ -457,7 +421,7 @@ const Income = () => {
                 onClick={() => handleSort('amountPerFrequency')}
                 sx={{ cursor: 'pointer' }}
               >
-                $({displayFrequency === 'biweekly' ? 'Fortnightly' : displayFrequency})
+                $({frequency === 'biweekly' ? 'Fortnightly' : frequency})
                 {sortField === 'amountPerFrequency' && (sortDirection === 'asc' ? '↑' : '↓')}
               </TableCell>
             </TableRow>
@@ -485,13 +449,13 @@ const Income = () => {
                 </TableCell>
                 <TableCell>{income.description}</TableCell>
                 <TableCell>
-                  ${calculateFrequencyAmount(income.amount.toString(), income.frequency, displayFrequency).toFixed(2)}
+                  ${calculateFrequencyAmount(income.amount.toString(), income.frequency, frequency).toFixed(2)}
                 </TableCell>
                 <TableCell>{income.frequency}</TableCell>
                 <TableCell>{formatDate(income.nextDue)}</TableCell>
                 <TableCell>{((Number(income.amount) / totalIncome) * 100).toFixed(1)}%</TableCell>
                 <TableCell align="right">
-                  ${calculateFrequencyAmount(income.amount.toString(), income.frequency, displayFrequency).toFixed(2)}
+                  ${calculateFrequencyAmount(income.amount.toString(), income.frequency, frequency).toFixed(2)}
                 </TableCell>
               </TableRow>
             ))}
@@ -499,7 +463,7 @@ const Income = () => {
               <TableCell colSpan={6} align="right"><strong>Total</strong></TableCell>
               <TableCell colSpan={2} align="right" sx={{ fontWeight: 'bold', color: 'text.primary' }}>
                 {formatCurrency(
-                  incomes.reduce((sum, income) => sum + calculateFrequencyAmount(income.amount.toString(), income.frequency, displayFrequency), 0)
+                  incomes.reduce((sum, income) => sum + calculateFrequencyAmount(income.amount.toString(), income.frequency, frequency), 0)
                 )}
               </TableCell>
             </TableRow>

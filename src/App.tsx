@@ -8,6 +8,7 @@ import Settings from './components/Settings';
 import Expenses from './components/Expenses';
 import Accounts from './components/Accounts';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
+import { FrequencyProvider } from './contexts/FrequencyContext';
 
 const theme = createTheme({
   palette: {
@@ -67,31 +68,33 @@ const router = createBrowserRouter(
 
 function App() {
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <Router>
-        <Box sx={{ display: 'flex' }}>
-          <Sidebar />
-          <Box
-            component="main"
-            sx={{
-              flex: 1,
-              minHeight: '100vh',
-              bgcolor: 'background.default'
-            }}
-          >
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/income" element={<Income />} />
-              <Route path="/expenses" element={<Expenses />} />
-              <Route path="/accounts" element={<Accounts />} />
-              <Route path="/schedule" element={<Schedule />} />
-              <Route path="/settings" element={<Settings />} />
-            </Routes>
+    <FrequencyProvider>
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <Router>
+          <Box sx={{ display: 'flex' }}>
+            <Sidebar />
+            <Box
+              component="main"
+              sx={{
+                flex: 1,
+                minHeight: '100vh',
+                bgcolor: 'background.default'
+              }}
+            >
+              <Routes>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/income" element={<Income />} />
+                <Route path="/expenses" element={<Expenses />} />
+                <Route path="/accounts" element={<Accounts />} />
+                <Route path="/schedule" element={<Schedule />} />
+                <Route path="/settings" element={<Settings />} />
+              </Routes>
+            </Box>
           </Box>
-        </Box>
-      </Router>
-    </ThemeProvider>
+        </Router>
+      </ThemeProvider>
+    </FrequencyProvider>
   );
 }
 

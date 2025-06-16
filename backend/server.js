@@ -53,8 +53,9 @@ const db = new sqlite3.Database(path.join(__dirname, 'budget.db'), (err) => {
       // Create settings table
       db.run(`
         CREATE TABLE IF NOT EXISTS settings (
-          key TEXT PRIMARY KEY,
-          value TEXT
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          key TEXT UNIQUE NOT NULL,
+          value TEXT NOT NULL
         )
       `);
 
@@ -501,38 +502,22 @@ app.get('/api/settings', (req, res) => {
 app.get('/api/settings/frequency', (req, res) => {
   db.get('SELECT value FROM settings WHERE key = ?', ['frequency'], (err, row) => {
     if (err) {
-      console.error('Error fetching frequency setting:', err);
-      res.status(500).json({ error: 'Failed to fetch frequency setting' });
+      res.status(500).json({ error: err.message });
       return;
     }
-    // Always return a valid frequency, defaulting to 'monthly' if not found
-    res.json({ frequency: row?.value || 'monthly' });
+    res.json({ frequency: row ? row.value : 'monthly' });
   });
 });
 
 // Update frequency setting
 app.post('/api/settings/frequency', (req, res) => {
   const { frequency } = req.body;
-  
-  if (!frequency) {
-    res.status(400).json({ error: 'Frequency is required' });
-    return;
-  }
-
-  // Validate frequency value
-  const validFrequencies = ['daily', 'weekly', 'biweekly', 'monthly', 'quarterly', 'annually'];
-  if (!validFrequencies.includes(frequency)) {
-    res.status(400).json({ error: 'Invalid frequency value' });
-    return;
-  }
-
   db.run(
     'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
     ['frequency', frequency],
     function(err) {
       if (err) {
-        console.error('Error updating frequency setting:', err);
-        res.status(500).json({ error: 'Failed to save frequency setting' });
+        res.status(500).json({ error: err.message });
         return;
       }
       res.json({ frequency });

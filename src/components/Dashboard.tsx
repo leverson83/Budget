@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Box, Typography, Paper, CircularProgress, Alert, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
+import type { SelectChangeEvent } from '@mui/material/Select';
 import { Grid } from '@mui/material';
 import {
   Chart as ChartJS,
@@ -15,6 +16,7 @@ import {
 } from 'chart.js';
 import { Line, Bar, Doughnut } from 'react-chartjs-2';
 import { API_URL, type Frequency, frequencies } from '../config';
+import { useFrequency } from '../contexts/FrequencyContext';
 
 ChartJS.register(
   CategoryScale,
@@ -55,11 +57,11 @@ const formatCurrency = (amount: number, noCents: boolean = false): string => {
 };
 
 const Dashboard = () => {
+  const { frequency, setFrequency } = useFrequency();
   const [incomes, setIncomes] = useState<IncomeEntry[]>([]);
   const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [displayFrequency, setDisplayFrequency] = useState<Frequency>('monthly');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -83,13 +85,6 @@ const Dashboard = () => {
           nextDue: new Date(expense.nextDue),
           tags: expense.tags || []
         })));
-
-        // Fetch display frequency
-        const frequencyResponse = await fetch(`${API_URL}/settings/frequency`);
-        if (frequencyResponse.ok) {
-          const { frequency } = await frequencyResponse.json();
-          if (frequency) setDisplayFrequency(frequency);
-        }
       } catch (error) {
         console.error('Error fetching data:', error);
         setError('Failed to load data. Please try again.');
@@ -101,54 +96,51 @@ const Dashboard = () => {
     fetchData();
   }, []);
 
-  const calculateFrequencyAmount = (amount: number, frequency: Frequency, targetFrequency: Frequency): number => {
-    // First convert to annual amount
-    let annualAmount: number;
-    switch (frequency) {
-      case "daily":
-        annualAmount = amount * 365;
-        break;
-      case "weekly":
-        annualAmount = amount * 52;
-        break;
-      case "biweekly":
-        annualAmount = amount * 26;
-        break;
-      case "monthly":
-        annualAmount = amount * 12;
-        break;
-      case "quarterly":
-        annualAmount = amount * 4;
-        break;
-      case "annually":
-        annualAmount = amount;
-        break;
-      default:
-        annualAmount = amount;
-    }
-
-    // Then convert to target frequency
-    switch (targetFrequency) {
-      case "daily":
-        return annualAmount / 365;
-      case "weekly":
-        return annualAmount / 52;
-      case "biweekly":
-        return annualAmount / 26;
-      case "monthly":
-        return annualAmount / 12;
-      case "quarterly":
-        return annualAmount / 4;
-      case "annually":
-        return annualAmount;
-      default:
-        return amount;
-    }
-  };
-
-  const calculateTotal = (items: (IncomeEntry | ExpenseEntry)[], frequency: Frequency) => {
+  const calculateTotal = (items: (IncomeEntry | ExpenseEntry)[], targetFrequency: Frequency) => {
     return items.reduce((total, item) => {
-      return total + calculateFrequencyAmount(Number(item.amount), item.frequency, frequency);
+      const amount = Number(item.amount);
+      const itemFrequency = item.frequency;
+
+      // Convert to annual amount first
+      let annualAmount = amount;
+      switch (itemFrequency) {
+        case 'daily':
+          annualAmount = amount * 365;
+          break;
+        case 'weekly':
+          annualAmount = amount * 52;
+          break;
+        case 'biweekly':
+          annualAmount = amount * 26;
+          break;
+        case 'monthly':
+          annualAmount = amount * 12;
+          break;
+        case 'quarterly':
+          annualAmount = amount * 4;
+          break;
+        case 'annually':
+          annualAmount = amount;
+          break;
+      }
+
+      // Then convert to target frequency
+      switch (targetFrequency) {
+        case 'daily':
+          return total + (annualAmount / 365);
+        case 'weekly':
+          return total + (annualAmount / 52);
+        case 'biweekly':
+          return total + (annualAmount / 26);
+        case 'monthly':
+          return total + (annualAmount / 12);
+        case 'quarterly':
+          return total + (annualAmount / 4);
+        case 'annually':
+          return total + annualAmount;
+        default:
+          return total + annualAmount;
+      }
     }, 0);
   };
 
@@ -168,18 +160,18 @@ const Dashboard = () => {
     );
   }
 
-  const totalIncome = calculateTotal(incomes, displayFrequency);
-  const totalExpenses = calculateTotal(expenses, displayFrequency);
+  const totalIncome = calculateTotal(incomes, frequency);
+  const totalExpenses = calculateTotal(expenses, frequency);
   const netIncome = totalIncome - totalExpenses;
 
   // Expenses by Category Chart
   const expensesByCategory = {
     labels: Array.from(new Set(expenses.flatMap(expense => expense.tags))),
     datasets: [{
-      label: `Expenses (${displayFrequency})`,
+      label: `Expenses (${frequency})`,
       data: Array.from(new Set(expenses.flatMap(expense => expense.tags))).map(tag => {
         const tagExpenses = expenses.filter(expense => expense.tags.includes(tag));
-        return calculateTotal(tagExpenses, displayFrequency);
+        return calculateTotal(tagExpenses, frequency);
       }),
       backgroundColor: Array.from(new Set(expenses.flatMap(expense => expense.tags))).map(tag => {
         const colors = [
@@ -217,6 +209,10 @@ const Dashboard = () => {
     }],
   };
 
+  const handleFrequencyChange = (event: SelectChangeEvent) => {
+    setFrequency(event.target.value as Frequency);
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ 
@@ -233,9 +229,9 @@ const Dashboard = () => {
         <FormControl sx={{ minWidth: 150 }}>
           <InputLabel>Display Frequency</InputLabel>
           <Select
-            value={displayFrequency}
+            value={frequency}
             label="Display Frequency"
-            onChange={(e) => setDisplayFrequency(e.target.value as Frequency)}
+            onChange={handleFrequencyChange}
             size="small"
           >
             {frequencies.map((freq) => (

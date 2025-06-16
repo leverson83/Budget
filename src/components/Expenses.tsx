@@ -33,12 +33,13 @@ import {
   ListItemText,
   Checkbox
 } from "@mui/material";
-import type { SelectChangeEvent } from "@mui/material";
+import type { SelectChangeEvent } from '@mui/material/Select';
 import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Info as InfoIcon } from "@mui/icons-material";
 import { format, addDays, addMonths, addWeeks, addYears, isAfter, isBefore } from "date-fns";
 import { API_URL, frequencies, type Frequency } from "../config";
 import axios from "axios";
 import { v4 as uuidv4 } from 'uuid';
+import { useFrequency } from '../contexts/FrequencyContext';
 
 interface Expense {
   id: string;
@@ -94,6 +95,7 @@ const formatCurrency = (amount: number) => {
 };
 
 const Expenses = () => {
+  const { frequency, setFrequency } = useFrequency();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
@@ -118,7 +120,6 @@ const Expenses = () => {
   const [successMessage, setSuccessMessage] = useState("");
   const [showError, setShowError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [selectedFrequency, setSelectedFrequency] = useState<Frequency>("monthly");
   const [selectedAccount, setSelectedAccount] = useState<string>("");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
 
@@ -168,7 +169,7 @@ const Expenses = () => {
         }
         const { frequency } = await frequencyResponse.json();
         if (frequency) {
-          setSelectedFrequency(frequency);
+          setFrequency(frequency);
         }
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -198,7 +199,7 @@ const Expenses = () => {
 
       const data = await response.json();
       if (data.frequency) {
-        setSelectedFrequency(data.frequency);
+        setFrequency(data.frequency);
       }
     } catch (error) {
       console.error('Error saving frequency:', error);
@@ -269,7 +270,7 @@ const Expenses = () => {
       setFormData({
         description: "",
         amount: "",
-        frequency: selectedFrequency,
+        frequency: frequency,
         startDate: format(new Date(), "yyyy-MM-dd"),
         endDate: "",
         accountId: '',
@@ -409,20 +410,19 @@ const Expenses = () => {
 
   const calculateTotal = () => {
     return expenses.reduce((total, expense) => {
-      return total + calculateFrequencyAmount(expense.amount, expense.frequency, selectedFrequency);
+      return total + calculateFrequencyAmount(expense.amount, expense.frequency, frequency);
     }, 0);
   };
 
   const calculatePercentage = (amount: number, frequency: Frequency) => {
-    const convertedAmount = calculateFrequencyAmount(amount, frequency, selectedFrequency);
-    const total = calculateTotal();
-    return total > 0 ? (convertedAmount / total) * 100 : 0;
+    const rawTotal = expenses.reduce((sum, expense) => sum + Number(expense.amount), 0);
+    return rawTotal > 0 ? (Number(amount) / rawTotal) * 100 : 0;
   };
 
   const sortedExpenses = [...expenses].sort((a, b) => {
     if (sortField === 'amountPerFrequency') {
-      const amountA = calculateFrequencyAmount(a.amount, a.frequency, selectedFrequency);
-      const amountB = calculateFrequencyAmount(b.amount, b.frequency, selectedFrequency);
+      const amountA = calculateFrequencyAmount(a.amount, a.frequency, frequency);
+      const amountB = calculateFrequencyAmount(b.amount, b.frequency, frequency);
       return sortDirection === 'asc' ? amountA - amountB : amountB - amountA;
     }
 
@@ -450,9 +450,8 @@ const Expenses = () => {
     return matchesAccount && matchesTags;
   });
 
-  const handleFilterChange = (event: SelectChangeEvent<Frequency>) => {
-    const newFrequency = event.target.value as Frequency;
-    saveFrequency(newFrequency);
+  const handleFrequencyChange = (event: SelectChangeEvent) => {
+    setFrequency(event.target.value as Frequency);
   };
 
   const calculateNextDue = (startDate: string, frequency: string) => {
@@ -638,27 +637,12 @@ const Expenses = () => {
       flexDirection: 'column',
       gap: 3
     }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h5" component="h2">
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Typography variant="h4" component="h1">
           Expenses
         </Typography>
         <Stack direction="row" spacing={2} alignItems="center">
           <Box display="flex" alignItems="center" gap={2}>
-            <FormControl size="small" variant="outlined" sx={{ minWidth: 120 }}>
-              <InputLabel id="frequency-label" shrink>Frequency</InputLabel>
-              <Select
-                labelId="frequency-label"
-                value={selectedFrequency}
-                onChange={(e) => setSelectedFrequency(e.target.value as Frequency)}
-                label="Frequency"
-              >
-                {frequencies.map((freq) => (
-                  <MenuItem key={freq.value} value={freq.value}>
-                    {freq.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
             <FormControl size="small" variant="outlined" sx={{ minWidth: 200 }}>
               <InputLabel id="account-label" shrink>Account</InputLabel>
               <Select
@@ -699,27 +683,43 @@ const Expenses = () => {
               </Select>
             </FormControl>
           </Box>
-          <Button
-            variant="contained"
-            color="primary"
-            startIcon={<AddIcon />}
-            size="small"
-            onClick={() => {
-              setFormData({
-                description: "",
-                amount: "",
-                frequency: selectedFrequency,
-                startDate: format(new Date(), "yyyy-MM-dd"),
-                endDate: "",
-                accountId: '',
-                notes: "",
-                tags: [],
-              });
-              setOpen(true);
-            }}
-          >
-            Add Expense
-          </Button>
+          <Box display="flex" alignItems="center" gap={2}>
+            <FormControl size="small" variant="outlined" sx={{ minWidth: 120 }}>
+              <InputLabel id="frequency-label" shrink>Frequency</InputLabel>
+              <Select
+                labelId="frequency-label"
+                value={frequency}
+                onChange={handleFrequencyChange}
+                label="Frequency"
+              >
+                {frequencies.map((freq) => (
+                  <MenuItem key={freq.value} value={freq.value}>
+                    {freq.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={<AddIcon />}
+              onClick={() => {
+                setFormData({
+                  description: "",
+                  amount: "",
+                  frequency: frequency,
+                  startDate: format(new Date(), "yyyy-MM-dd"),
+                  endDate: "",
+                  accountId: '',
+                  notes: "",
+                  tags: [],
+                });
+                setOpen(true);
+              }}
+            >
+              Add Expense
+            </Button>
+          </Box>
         </Stack>
       </Box>
 
@@ -749,7 +749,7 @@ const Expenses = () => {
                   onClick={() => handleSort('frequency')}
                   style={{ cursor: 'pointer' }}
                 >
-                  {selectedFrequency.charAt(0).toUpperCase() + selectedFrequency.slice(1)} {sortField === 'frequency' && (sortDirection === 'asc' ? '↑' : '↓')}
+                  {frequency.charAt(0).toUpperCase() + frequency.slice(1)} {sortField === 'frequency' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </TableCell>
                 <TableCell onClick={() => handleSort('nextDue')} style={{ cursor: 'pointer' }}>
                   Next Due {sortField === 'nextDue' && (sortDirection === 'asc' ? '↑' : '↓')}
@@ -762,7 +762,7 @@ const Expenses = () => {
                   % {sortField === 'percentage' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </TableCell>
                 <TableCell onClick={() => handleSort('amountPerFrequency')} style={{ cursor: 'pointer' }} align="right">
-                  $({selectedFrequency}) {sortField === 'amountPerFrequency' && (sortDirection === 'asc' ? '↑' : '↓')}
+                  $({frequency}) {sortField === 'amountPerFrequency' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </TableCell>
               </TableRow>
             </TableHead>
@@ -793,7 +793,7 @@ const Expenses = () => {
                   </TableCell>
                   <TableCell>{calculatePercentage(expense.amount, expense.frequency).toFixed(1)}%</TableCell>
                   <TableCell align="right">
-                    {formatCurrency(calculateFrequencyAmount(expense.amount, expense.frequency, selectedFrequency))}
+                    {formatCurrency(calculateFrequencyAmount(expense.amount, expense.frequency, frequency))}
                   </TableCell>
                 </TableRow>
               ))}
@@ -803,7 +803,7 @@ const Expenses = () => {
                 </TableCell>
                 <TableCell align="right">
                   <strong>{formatCurrency(filteredExpenses.reduce((total, expense) => 
-                    total + calculateFrequencyAmount(expense.amount, expense.frequency, selectedFrequency), 0))}</strong>
+                    total + calculateFrequencyAmount(expense.amount, expense.frequency, frequency), 0))}</strong>
                 </TableCell>
               </TableRow>
             </TableBody>
