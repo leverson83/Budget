@@ -256,40 +256,70 @@ app.post('/api/expenses', (req, res) => {
         // If there are tags, insert them
         if (tags && tags.length > 0) {
           console.log('Inserting tags:', tags);
-          const stmt = db.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)');
-          const tagIds = [];
+          let completedTags = 0;
+          const totalTags = tags.length;
+          let hasError = false;
 
-          // First insert all tags and collect their IDs
           tags.forEach(tag => {
-            stmt.run(tag, function(err) {
+            // Insert or ignore the tag, then always fetch its ID
+            db.run('INSERT OR IGNORE INTO tags (name) VALUES (?)', [tag], function(err) {
               if (err) {
-                console.error('Error inserting tag:', err);
-                db.run('ROLLBACK');
-                res.status(500).json({ error: err.message });
+                if (!hasError) {
+                  hasError = true;
+                  console.error('Error inserting tag:', err);
+                  db.run('ROLLBACK');
+                  res.status(500).json({ error: err.message });
+                }
                 return;
               }
-              tagIds.push(this.lastID);
+              // Now fetch the tag ID
+              db.get('SELECT id FROM tags WHERE name = ?', [tag], (err, row) => {
+                if (err || !row) {
+                  if (!hasError) {
+                    hasError = true;
+                    console.error('Error fetching tag id:', err);
+                    db.run('ROLLBACK');
+                    res.status(500).json({ error: err ? err.message : 'Tag not found' });
+                  }
+                  return;
+                }
+                // Insert into expense_tags
+                db.run('INSERT INTO expense_tags (expense_id, tag_id) VALUES (?, ?)', [id, row.id], function(err) {
+                  if (err) {
+                    if (!hasError) {
+                      hasError = true;
+                      console.error('Error linking tag:', err);
+                      db.run('ROLLBACK');
+                      res.status(500).json({ error: err.message });
+                    }
+                    return;
+                  }
+                  completedTags++;
+                  if (completedTags === totalTags && !hasError) {
+                    db.run('COMMIT', (err) => {
+                      if (err) {
+                        console.error('Error committing transaction:', err);
+                        res.status(500).json({ error: err.message });
+                        return;
+                      }
+                      res.json({ id });
+                    });
+                  }
+                });
+              });
             });
           });
-          stmt.finalize();
-
-          // Then create the expense-tag relationships
-          const linkStmt = db.prepare('INSERT INTO expense_tags (expense_id, tag_id) VALUES (?, ?)');
-          tagIds.forEach(tagId => {
-            linkStmt.run(id, tagId);
+        } else {
+          // Commit the transaction if no tags
+          db.run('COMMIT', (err) => {
+            if (err) {
+              console.error('Error committing transaction:', err);
+              res.status(500).json({ error: err.message });
+              return;
+            }
+            res.json({ id });
           });
-          linkStmt.finalize();
         }
-
-        // Commit the transaction
-        db.run('COMMIT', (err) => {
-          if (err) {
-            console.error('Error committing transaction:', err);
-            res.status(500).json({ error: err.message });
-            return;
-          }
-          res.json({ id });
-        });
       }
     );
   });

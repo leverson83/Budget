@@ -29,7 +29,6 @@ const menuItems = [
   { text: 'Expenses', icon: <AccountBalanceIcon />, path: '/expenses' },
   { text: 'Accounts', icon: <AccountBalanceWalletIcon />, path: '/accounts' },
   { text: 'Schedule', icon: <CalendarIcon />, path: '/schedule' },
-  { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
 ];
 
 const Sidebar = () => {
@@ -61,7 +60,7 @@ const Sidebar = () => {
       flexDirection: 'column',
       overflowX: 'hidden'
     }}>
-      <List>
+      <List sx={{ flexGrow: 1 }}>
         {menuItems.map((item) => (
           <ListItem key={item.text} disablePadding>
             <ListItemButton
@@ -73,6 +72,18 @@ const Sidebar = () => {
             </ListItemButton>
           </ListItem>
         ))}
+      </List>
+      <Divider />
+      <List>
+        <ListItem disablePadding>
+          <ListItemButton
+            selected={location.pathname === '/settings'}
+            onClick={() => handleMenuClick('/settings')}
+          >
+            <ListItemIcon><SettingsIcon /></ListItemIcon>
+            <ListItemText primary="Settings" />
+          </ListItemButton>
+        </ListItem>
       </List>
     </Box>
   );

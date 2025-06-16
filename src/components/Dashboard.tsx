@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Box, Typography, Grid, Paper, CircularProgress, Alert } from '@mui/material';
+import { Box, Typography, Paper, CircularProgress, Alert, Select, MenuItem, FormControl, InputLabel, Grid } from '@mui/material';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -13,7 +13,7 @@ import {
   Legend,
 } from 'chart.js';
 import { Line, Bar, Doughnut } from 'react-chartjs-2';
-import { API_URL, type Frequency } from '../config';
+import { API_URL, type Frequency, frequencies } from '../config';
 
 ChartJS.register(
   CategoryScale,
@@ -41,6 +41,7 @@ interface ExpenseEntry {
   amount: number;
   frequency: Frequency;
   nextDue: Date;
+  tags: string[];
 }
 
 const formatCurrency = (amount: number) => {
@@ -76,7 +77,8 @@ const Dashboard = () => {
         const expensesData = await expensesResponse.json();
         setExpenses(expensesData.map((expense: any) => ({
           ...expense,
-          nextDue: new Date(expense.nextDue)
+          nextDue: new Date(expense.nextDue),
+          tags: expense.tags || []
         })));
 
         // Fetch display frequency
@@ -96,25 +98,54 @@ const Dashboard = () => {
     fetchData();
   }, []);
 
+  const calculateFrequencyAmount = (amount: number, frequency: Frequency, targetFrequency: Frequency): number => {
+    // First convert to annual amount
+    let annualAmount: number;
+    switch (frequency) {
+      case "daily":
+        annualAmount = amount * 365;
+        break;
+      case "weekly":
+        annualAmount = amount * 52;
+        break;
+      case "biweekly":
+        annualAmount = amount * 26;
+        break;
+      case "monthly":
+        annualAmount = amount * 12;
+        break;
+      case "quarterly":
+        annualAmount = amount * 4;
+        break;
+      case "annually":
+        annualAmount = amount;
+        break;
+      default:
+        annualAmount = amount;
+    }
+
+    // Then convert to target frequency
+    switch (targetFrequency) {
+      case "daily":
+        return annualAmount / 365;
+      case "weekly":
+        return annualAmount / 52;
+      case "biweekly":
+        return annualAmount / 26;
+      case "monthly":
+        return annualAmount / 12;
+      case "quarterly":
+        return annualAmount / 4;
+      case "annually":
+        return annualAmount;
+      default:
+        return amount;
+    }
+  };
+
   const calculateTotal = (items: (IncomeEntry | ExpenseEntry)[], frequency: Frequency) => {
     return items.reduce((total, item) => {
-      const amount = Number(item.amount);
-      switch (item.frequency) {
-        case 'daily':
-          return total + (amount * (frequency === 'monthly' ? 30 : frequency === 'weekly' ? 7 : frequency === 'biweekly' ? 14 : frequency === 'quarterly' ? 90 : frequency === 'annually' ? 365 : 30));
-        case 'weekly':
-          return total + (amount * (frequency === 'monthly' ? 4 : frequency === 'biweekly' ? 2 : frequency === 'quarterly' ? 13 : frequency === 'annually' ? 52 : 1));
-        case 'biweekly':
-          return total + (amount * (frequency === 'monthly' ? 2 : frequency === 'weekly' ? 0.5 : frequency === 'quarterly' ? 6.5 : frequency === 'annually' ? 26 : 1));
-        case 'monthly':
-          return total + (amount * (frequency === 'weekly' ? 0.25 : frequency === 'biweekly' ? 0.5 : frequency === 'quarterly' ? 3 : frequency === 'annually' ? 12 : 1));
-        case 'quarterly':
-          return total + (amount * (frequency === 'monthly' ? 0.33 : frequency === 'weekly' ? 0.08 : frequency === 'biweekly' ? 0.15 : frequency === 'annually' ? 4 : 1));
-        case 'annually':
-          return total + (amount * (frequency === 'monthly' ? 0.083 : frequency === 'weekly' ? 0.019 : frequency === 'biweekly' ? 0.038 : frequency === 'quarterly' ? 0.25 : 1));
-        default:
-          return total;
-      }
+      return total + calculateFrequencyAmount(Number(item.amount), item.frequency, frequency);
     }, 0);
   };
 
@@ -138,59 +169,76 @@ const Dashboard = () => {
   const totalExpenses = calculateTotal(expenses, displayFrequency);
   const netIncome = totalIncome - totalExpenses;
 
-  // Income by Category Chart
-  const incomeByCategory = {
-    labels: incomes.map(income => income.description),
-    datasets: [{
-      label: `Income (${displayFrequency})`,
-      data: incomes.map(income => calculateTotal([income], displayFrequency)),
-      backgroundColor: 'rgba(75, 192, 192, 0.6)',
-      borderColor: 'rgba(75, 192, 192, 1)',
-      borderWidth: 1,
-    }],
-  };
-
   // Expenses by Category Chart
   const expensesByCategory = {
-    labels: expenses.map(expense => expense.description),
+    labels: Array.from(new Set(expenses.flatMap(expense => expense.tags))),
     datasets: [{
       label: `Expenses (${displayFrequency})`,
-      data: expenses.map(expense => calculateTotal([expense], displayFrequency)),
-      backgroundColor: 'rgba(255, 99, 132, 0.6)',
-      borderColor: 'rgba(255, 99, 132, 1)',
-      borderWidth: 1,
-    }],
-  };
-
-  // Income vs Expenses Chart
-  const incomeVsExpenses = {
-    labels: ['Income', 'Expenses', 'Net Income'],
-    datasets: [{
-      label: `Amount (${displayFrequency})`,
-      data: [totalIncome, totalExpenses, netIncome],
-      backgroundColor: [
-        'rgba(75, 192, 192, 0.6)',
-        'rgba(255, 99, 132, 0.6)',
-        'rgba(54, 162, 235, 0.6)',
-      ],
-      borderColor: [
-        'rgba(75, 192, 192, 1)',
-        'rgba(255, 99, 132, 1)',
-        'rgba(54, 162, 235, 1)',
-      ],
+      data: Array.from(new Set(expenses.flatMap(expense => expense.tags))).map(tag => {
+        const tagExpenses = expenses.filter(expense => expense.tags.includes(tag));
+        return calculateTotal(tagExpenses, displayFrequency);
+      }),
+      backgroundColor: Array.from(new Set(expenses.flatMap(expense => expense.tags))).map(tag => {
+        const colors = [
+          'rgba(255, 99, 132, 0.6)',
+          'rgba(54, 162, 235, 0.6)',
+          'rgba(255, 206, 86, 0.6)',
+          'rgba(75, 192, 192, 0.6)',
+          'rgba(153, 102, 255, 0.6)',
+          'rgba(255, 159, 64, 0.6)',
+          'rgba(199, 199, 199, 0.6)',
+          'rgba(83, 102, 255, 0.6)',
+          'rgba(40, 159, 64, 0.6)',
+          'rgba(210, 199, 199, 0.6)',
+        ];
+        const index = tag.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+        return colors[index % colors.length];
+      }),
+      borderColor: Array.from(new Set(expenses.flatMap(expense => expense.tags))).map(tag => {
+        const colors = [
+          'rgba(255, 99, 132, 1)',
+          'rgba(54, 162, 235, 1)',
+          'rgba(255, 206, 86, 1)',
+          'rgba(75, 192, 192, 1)',
+          'rgba(153, 102, 255, 1)',
+          'rgba(255, 159, 64, 1)',
+          'rgba(199, 199, 199, 1)',
+          'rgba(83, 102, 255, 1)',
+          'rgba(40, 159, 64, 1)',
+          'rgba(210, 199, 199, 1)',
+        ];
+        const index = tag.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+        return colors[index % colors.length];
+      }),
       borderWidth: 1,
     }],
   };
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom>
-        Dashboard
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Typography variant="h4">
+          Dashboard
+        </Typography>
+        <FormControl sx={{ minWidth: 120 }}>
+          <InputLabel>Frequency</InputLabel>
+          <Select
+            value={displayFrequency}
+            label="Frequency"
+            onChange={(e) => setDisplayFrequency(e.target.value as Frequency)}
+          >
+            {frequencies.map((freq) => (
+              <MenuItem key={freq.value} value={freq.value}>
+                {freq.label}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Box>
 
       {/* Summary Cards Row */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid xs={12} md={4}>
+        <Grid item xs={12} md={4}>
           <Paper sx={{ p: 2, textAlign: 'center' }}>
             <Typography variant="h6" color="text.secondary" gutterBottom>
               Total Income
@@ -200,7 +248,7 @@ const Dashboard = () => {
             </Typography>
           </Paper>
         </Grid>
-        <Grid xs={12} md={4}>
+        <Grid item xs={12} md={4}>
           <Paper sx={{ p: 2, textAlign: 'center' }}>
             <Typography variant="h6" color="text.secondary" gutterBottom>
               Total Expenses
@@ -210,7 +258,7 @@ const Dashboard = () => {
             </Typography>
           </Paper>
         </Grid>
-        <Grid xs={12} md={4}>
+        <Grid item xs={12} md={4}>
           <Paper sx={{ p: 2, textAlign: 'center' }}>
             <Typography variant="h6" color="text.secondary" gutterBottom>
               Net Income
@@ -224,25 +272,7 @@ const Dashboard = () => {
 
       {/* Charts Grid */}
       <Grid container spacing={3}>
-        <Grid xs={12} md={6}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="h6" gutterBottom>
-              Income by Category
-            </Typography>
-            <Bar data={incomeByCategory} options={{
-              responsive: true,
-              plugins: {
-                legend: { display: false },
-                tooltip: {
-                  callbacks: {
-                    label: (context) => formatCurrency(context.raw as number)
-                  }
-                }
-              }
-            }} />
-          </Paper>
-        </Grid>
-        <Grid xs={12} md={6}>
+        <Grid item xs={12} md={6}>
           <Paper sx={{ p: 2 }}>
             <Typography variant="h6" gutterBottom>
               Expenses by Category
@@ -258,26 +288,6 @@ const Dashboard = () => {
                 }
               }
             }} />
-          </Paper>
-        </Grid>
-        <Grid xs={12}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="h6" gutterBottom>
-              Income vs Expenses
-            </Typography>
-            <Box sx={{ height: 300 }}>
-              <Bar data={incomeVsExpenses} options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                  tooltip: {
-                    callbacks: {
-                      label: (context) => formatCurrency(context.raw as number)
-                    }
-                  }
-                }
-              }} />
-            </Box>
           </Paper>
         </Grid>
       </Grid>
