@@ -90,14 +90,7 @@ const db = new sqlite3.Database(path.join(__dirname, 'budget.db'), (err) => {
         )
       `);
 
-      // Insert test data
-      db.run(`
-        INSERT OR IGNORE INTO accounts (name, bank, currentBalance, requiredBalance, isPrimary)
-        VALUES 
-          ('Main Checking', 'Chase', 5000.00, 3000.00, 1),
-          ('Savings', 'Bank of America', 10000.00, 8000.00, 0)
-      `);
-
+      // Insert test data for tags
       db.run(`
         INSERT OR IGNORE INTO tags (name)
         VALUES 
@@ -228,7 +221,7 @@ app.get('/api/expenses', (req, res) => {
     const processedRows = rows.map(row => ({
       ...row,
       applyFuzziness: Boolean(row.applyFuzziness),
-      tags: row.tags ? row.tags.split(',') : []
+      tags: row.tags ? row.tags.split(',').filter(Boolean) : []
     }));
     res.json(processedRows);
   });
@@ -242,6 +235,8 @@ app.post('/api/expenses', (req, res) => {
     res.status(400).json({ error: 'Missing required fields' });
     return;
   }
+
+  console.log('Creating expense with data:', { id, description, amount, frequency, nextDue, applyFuzziness, notes, tags, accountId });
 
   db.serialize(() => {
     db.run('BEGIN TRANSACTION');
@@ -260,6 +255,7 @@ app.post('/api/expenses', (req, res) => {
 
         // If there are tags, insert them
         if (tags && tags.length > 0) {
+          console.log('Inserting tags:', tags);
           const stmt = db.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)');
           const tagIds = [];
 
@@ -285,13 +281,14 @@ app.post('/api/expenses', (req, res) => {
           linkStmt.finalize();
         }
 
+        // Commit the transaction
         db.run('COMMIT', (err) => {
           if (err) {
             console.error('Error committing transaction:', err);
             res.status(500).json({ error: err.message });
             return;
           }
-          res.json({ id: this.lastID });
+          res.json({ id });
         });
       }
     );
@@ -307,6 +304,8 @@ app.put('/api/expenses/:id', (req, res) => {
     res.status(400).json({ error: 'Missing required fields' });
     return;
   }
+
+  console.log('Updating expense with data:', { id, description, amount, frequency, nextDue, applyFuzziness, notes, tags, accountId });
 
   db.serialize(() => {
     db.run('BEGIN TRANSACTION');
@@ -334,39 +333,78 @@ app.put('/api/expenses/:id', (req, res) => {
 
           // If there are new tags, insert them
           if (tags && tags.length > 0) {
-            const stmt = db.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)');
-            const tagIds = [];
-
-            // First insert all tags and collect their IDs
-            tags.forEach(tag => {
-              stmt.run(tag, function(err) {
+            console.log('Inserting tags:', tags);
+            
+            // First, get all existing tag IDs
+            const getTagId = (tagName, callback) => {
+              db.get('SELECT id FROM tags WHERE name = ?', [tagName], (err, row) => {
                 if (err) {
-                  console.error('Error inserting tag:', err);
+                  callback(err);
+                  return;
+                }
+                if (row) {
+                  callback(null, row.id);
+                } else {
+                  // If tag doesn't exist, create it
+                  db.run('INSERT INTO tags (name) VALUES (?)', [tagName], function(err) {
+                    if (err) {
+                      callback(err);
+                      return;
+                    }
+                    callback(null, this.lastID);
+                  });
+                }
+              });
+            };
+
+            let completedTags = 0;
+            const totalTags = tags.length;
+
+            tags.forEach(tag => {
+              getTagId(tag, (err, tagId) => {
+                if (err) {
+                  console.error('Error getting/creating tag:', err);
                   db.run('ROLLBACK');
                   res.status(500).json({ error: err.message });
                   return;
                 }
-                tagIds.push(this.lastID);
+
+                // Insert the tag relationship
+                db.run('INSERT INTO expense_tags (expense_id, tag_id) VALUES (?, ?)', 
+                  [id, tagId], 
+                  (err) => {
+                    if (err) {
+                      console.error('Error inserting tag relationship:', err);
+                      db.run('ROLLBACK');
+                      res.status(500).json({ error: err.message });
+                      return;
+                    }
+                    completedTags++;
+                    if (completedTags === totalTags) {
+                      db.run('COMMIT', (err) => {
+                        if (err) {
+                          console.error('Error committing transaction:', err);
+                          res.status(500).json({ error: err.message });
+                          return;
+                        }
+                        res.json({ changes: this.changes });
+                      });
+                    }
+                  }
+                );
               });
             });
-            stmt.finalize();
-
-            // Then create the expense-tag relationships
-            const linkStmt = db.prepare('INSERT INTO expense_tags (expense_id, tag_id) VALUES (?, ?)');
-            tagIds.forEach(tagId => {
-              linkStmt.run(id, tagId);
+          } else {
+            // If no tags, just commit the transaction
+            db.run('COMMIT', (err) => {
+              if (err) {
+                console.error('Error committing transaction:', err);
+                res.status(500).json({ error: err.message });
+                return;
+              }
+              res.json({ changes: this.changes });
             });
-            linkStmt.finalize();
           }
-
-          db.run('COMMIT', (err) => {
-            if (err) {
-              console.error('Error committing transaction:', err);
-              res.status(500).json({ error: err.message });
-              return;
-            }
-            res.json({ changes: this.changes });
-          });
         });
       }
     );
@@ -568,13 +606,13 @@ app.delete('/api/accounts/:id', (req, res) => {
 
 // Get all tags
 app.get('/api/tags', (req, res) => {
-  db.all('SELECT * FROM tags ORDER BY name', [], (err, rows) => {
+  db.all('SELECT name FROM tags ORDER BY name', [], (err, rows) => {
     if (err) {
       console.error('Error fetching tags:', err);
       res.status(500).json({ error: err.message });
       return;
     }
-    res.json(rows);
+    res.json(rows.map(row => row.name));
   });
 });
 

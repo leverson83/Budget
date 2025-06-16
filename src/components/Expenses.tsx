@@ -28,25 +28,29 @@ import {
   FormControl,
   InputLabel,
   Select,
-  Stack
+  Stack,
+  OutlinedInput,
+  ListItemText,
+  Checkbox
 } from "@mui/material";
 import type { SelectChangeEvent } from "@mui/material";
 import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Info as InfoIcon } from "@mui/icons-material";
 import { format, addDays, addMonths, addWeeks, addYears, isAfter, isBefore } from "date-fns";
 import { API_URL, frequencies, type Frequency } from "../config";
 import axios from "axios";
+import { v4 as uuidv4 } from 'uuid';
 
 interface Expense {
-  id: number;
+  id: string;
   description: string;
   amount: number;
   frequency: Frequency;
-  nextDue: string;
-  percentage: number;
+  nextDue: Date;
   notes: string;
   applyFuzziness: boolean;
   accountId?: number;
-  tags?: string[];
+  tags: string[];
+  percentage: number;
 }
 
 interface Account {
@@ -67,6 +71,19 @@ interface ExpenseFormData {
   endDate: string;
   accountId: number | '';
   notes: string;
+  tags: string[];
+}
+
+interface ExpenseResponse {
+  id: string;
+  description: string;
+  amount: number;
+  frequency: Frequency;
+  nextDue: string;
+  notes: string;
+  applyFuzziness: boolean;
+  accountId?: number;
+  tags?: string[];
 }
 
 const formatCurrency = (amount: number) => {
@@ -79,6 +96,7 @@ const formatCurrency = (amount: number) => {
 const Expenses = () => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -93,6 +111,7 @@ const Expenses = () => {
     endDate: "",
     accountId: '',
     notes: "",
+    tags: [],
   });
   const [editingId, setEditingId] = useState<number | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -100,7 +119,8 @@ const Expenses = () => {
   const [showError, setShowError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [selectedFrequency, setSelectedFrequency] = useState<Frequency>("monthly");
-  const [selectedAccount, setSelectedAccount] = useState<string>('all');
+  const [selectedAccount, setSelectedAccount] = useState<string>("");
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
 
   type SortField = keyof Expense | 'amountPerFrequency';
 
@@ -116,11 +136,14 @@ const Expenses = () => {
         if (!expensesResponse.ok) {
           throw new Error('Failed to fetch expenses');
         }
-        const expensesData = await expensesResponse.json();
-        setExpenses(expensesData.map((expense: any) => ({
+        const expensesData = await expensesResponse.json() as ExpenseResponse[];
+        const processedExpenses: Expense[] = expensesData.map((expense) => ({
           ...expense,
-          nextDue: new Date(expense.nextDue)
-        })));
+          nextDue: new Date(expense.nextDue),
+          tags: expense.tags || [],
+          percentage: calculatePercentage(expense.amount, expense.frequency)
+        }));
+        setExpenses(processedExpenses);
 
         // Fetch accounts
         const accountsResponse = await fetch(`${API_URL}/accounts`);
@@ -130,11 +153,18 @@ const Expenses = () => {
         const accountsData = await accountsResponse.json();
         setAccounts(accountsData);
 
+        // Fetch tags
+        const tagsResponse = await fetch(`${API_URL}/tags`);
+        if (!tagsResponse.ok) {
+          throw new Error('Failed to fetch tags');
+        }
+        const tagsData = await tagsResponse.json();
+        setAvailableTags(tagsData);
+
         // Fetch saved frequency
         const frequencyResponse = await fetch(`${API_URL}/settings/frequency`);
         if (!frequencyResponse.ok) {
           console.error('Failed to fetch frequency setting');
-          return;
         }
         const { frequency } = await frequencyResponse.json();
         if (frequency) {
@@ -186,8 +216,14 @@ const Expenses = () => {
       if (!response.ok) {
         throw new Error("Failed to fetch expenses");
       }
-      const data = await response.json();
-      setExpenses(data);
+      const data = await response.json() as ExpenseResponse[];
+      const processedExpenses: Expense[] = data.map((expense) => ({
+        ...expense,
+        nextDue: new Date(expense.nextDue),
+        tags: expense.tags || [],
+        percentage: calculatePercentage(expense.amount, expense.frequency)
+      }));
+      setExpenses(processedExpenses);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
@@ -226,6 +262,7 @@ const Expenses = () => {
         endDate: "",
         accountId: expense.accountId || '',
         notes: expense.notes || "",
+        tags: expense.tags || [],
       });
     } else {
       setEditingExpense(null);
@@ -237,6 +274,7 @@ const Expenses = () => {
         endDate: "",
         accountId: '',
         notes: "",
+        tags: [],
       });
     }
     setOpen(true);
@@ -253,6 +291,7 @@ const Expenses = () => {
       endDate: "",
       notes: "",
       accountId: '',
+      tags: [],
     });
   };
 
@@ -286,19 +325,23 @@ const Expenses = () => {
     e.preventDefault();
     try {
       const expenseData = {
+        id: editingExpense ? editingExpense.id : uuidv4(),
         description: formData.description,
         amount: parseFloat(formData.amount),
         frequency: formData.frequency,
         nextDue: formData.startDate,
         notes: formData.notes,
-        accountId: formData.accountId === '' ? null : formData.accountId
+        accountId: formData.accountId === '' ? null : formData.accountId,
+        tags: formData.tags || []
       };
 
       if (editingExpense) {
-        await axios.put(`${API_URL}/expenses/${editingExpense.id}`, expenseData);
+        const response = await axios.put(`${API_URL}/expenses/${editingExpense.id}`, expenseData);
+        console.log('Update response:', response.data);
         setSuccessMessage("Expense updated successfully");
       } else {
-        await axios.post(`${API_URL}/expenses`, expenseData);
+        const response = await axios.post(`${API_URL}/expenses`, expenseData);
+        console.log('Create response:', response.data);
         setSuccessMessage("Expense added successfully");
       }
 
@@ -306,8 +349,8 @@ const Expenses = () => {
       handleClose();
       fetchExpenses();
     } catch (error) {
-      console.error("Error saving expense:", error);
-      setErrorMessage("Failed to save expense. Please try again.");
+      console.error('Error saving expense:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to save expense');
       setShowError(true);
     }
   };
@@ -393,6 +436,20 @@ const Expenses = () => {
     return direction * (Number(aValue) - Number(bValue));
   });
 
+  const filteredExpenses = sortedExpenses.filter((expense) => {
+    // Handle account filtering
+    let matchesAccount = true;
+    if (selectedAccount !== "") {
+      matchesAccount = expense.accountId === Number(selectedAccount);
+    }
+
+    // Handle tag filtering
+    const matchesTags = selectedTags.length === 0 || 
+      selectedTags.some(tag => expense.tags.includes(tag));
+
+    return matchesAccount && matchesTags;
+  });
+
   const handleFilterChange = (event: SelectChangeEvent<Frequency>) => {
     const newFrequency = event.target.value as Frequency;
     saveFrequency(newFrequency);
@@ -434,9 +491,136 @@ const Expenses = () => {
     return nextDue;
   };
 
-  const filteredExpenses = selectedAccount === 'all'
-    ? sortedExpenses
-    : sortedExpenses.filter(exp => exp.accountId && exp.accountId.toString() === selectedAccount);
+  const getTagColor = (tag: string) => {
+    const colors = [
+      '#1976d2', // Blue
+      '#9c27b0', // Purple
+      '#2e7d32', // Green
+      '#f57c00', // Orange
+      '#c2185b', // Pink
+      '#00838f', // Teal
+      '#7b1fa2', // Deep Purple
+      '#d32f2f', // Red
+      '#5d4037', // Brown
+      '#455a64', // Blue Grey
+    ];
+    
+    // Use the tag name to consistently assign the same color to the same tag
+    const index = tag.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    return colors[index % colors.length];
+  };
+
+  const renderTags = (tags: string[]) => {
+    return tags.map((tag, index) => (
+      <Chip
+        key={tag}
+        label={tag}
+        className="mr-1 mb-1"
+        disabled={false}
+        data-tag-index={index}
+        tabIndex={-1}
+        size="small"
+        sx={{
+          backgroundColor: getTagColor(tag),
+          color: '#ffffff',
+          '&:hover': {
+            backgroundColor: getTagColor(tag),
+            opacity: 0.8
+          }
+        }}
+      />
+    ));
+  };
+
+  const renderTagFilter = () => {
+    return (
+      <FormControl size="small" className="w-48">
+        <InputLabel>Filter by Tag</InputLabel>
+        <Select
+          multiple
+          value={selectedTags}
+          onChange={(e) => setSelectedTags(e.target.value as string[])}
+          input={<OutlinedInput label="Filter by Tag" />}
+          renderValue={(selected) => (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+              {selected.map((value) => (
+                <Chip
+                  key={value}
+                  label={value}
+                  size="small"
+                  sx={{
+                    backgroundColor: getTagColor(value),
+                    color: '#ffffff',
+                    fontWeight: 'medium',
+                    '&:hover': {
+                      backgroundColor: getTagColor(value),
+                      opacity: 0.8
+                    }
+                  }}
+                />
+              ))}
+            </Box>
+          )}
+          sx={{
+            '& .MuiSelect-select': {
+              backgroundColor: 'transparent'
+            }
+          }}
+          MenuProps={{
+            PaperProps: {
+              sx: {
+                maxHeight: 300,
+                '& .MuiMenuItem-root': {
+                  padding: '8px 16px',
+                  '&:hover': {
+                    backgroundColor: 'rgba(0, 0, 0, 0.04)'
+                  }
+                }
+              }
+            }
+          }}
+        >
+          {availableTags.map((tag) => (
+            <MenuItem 
+              key={tag} 
+              value={tag}
+              sx={{
+                backgroundColor: `${getTagColor(tag)}20`,
+                '&:hover': {
+                  backgroundColor: `${getTagColor(tag)}40`
+                },
+                '&.Mui-selected': {
+                  backgroundColor: `${getTagColor(tag)}40`,
+                  '&:hover': {
+                    backgroundColor: `${getTagColor(tag)}60`
+                  }
+                }
+              }}
+            >
+              <Checkbox 
+                checked={selectedTags.indexOf(tag) > -1}
+                sx={{
+                  color: getTagColor(tag),
+                  '&.Mui-checked': {
+                    color: getTagColor(tag)
+                  }
+                }}
+              />
+              <ListItemText 
+                primary={tag} 
+                sx={{
+                  '& .MuiTypography-root': {
+                    color: getTagColor(tag),
+                    fontWeight: 'medium'
+                  }
+                }}
+              />
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+    );
+  };
 
   if (loading) {
     return (
@@ -459,14 +643,14 @@ const Expenses = () => {
           Expenses
         </Typography>
         <Stack direction="row" spacing={2} alignItems="center">
-          <Box display="flex" alignItems="center" gap={2} mb={2}>
-            <FormControl>
-              <InputLabel>Frequency</InputLabel>
+          <Box display="flex" alignItems="center" gap={2}>
+            <FormControl size="small" variant="outlined" sx={{ minWidth: 120 }}>
+              <InputLabel id="frequency-label" shrink>Frequency</InputLabel>
               <Select
+                labelId="frequency-label"
                 value={selectedFrequency}
-                label="Frequency"
                 onChange={(e) => setSelectedFrequency(e.target.value as Frequency)}
-                size="small"
+                label="Frequency"
               >
                 {frequencies.map((freq) => (
                   <MenuItem key={freq.value} value={freq.value}>
@@ -475,18 +659,41 @@ const Expenses = () => {
                 ))}
               </Select>
             </FormControl>
-            <FormControl sx={{ minWidth: 200 }}>
-              <InputLabel>Account</InputLabel>
+            <FormControl size="small" variant="outlined" sx={{ minWidth: 200 }}>
+              <InputLabel id="account-label" shrink>Account</InputLabel>
               <Select
+                labelId="account-label"
                 value={selectedAccount}
-                label="Account"
                 onChange={(e) => setSelectedAccount(e.target.value)}
-                size="small"
+                label="Account"
               >
-                <MenuItem value="all">All</MenuItem>
+                <MenuItem value="">All Accounts</MenuItem>
                 {accounts.map((account) => (
                   <MenuItem key={account.id} value={account.id.toString()}>
-                    {account.name} ({account.bank})
+                    {account.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl size="small" variant="outlined" sx={{ minWidth: 200 }}>
+              <InputLabel id="tags-label" shrink>Tags</InputLabel>
+              <Select
+                labelId="tags-label"
+                multiple
+                value={selectedTags}
+                onChange={(e) => setSelectedTags(e.target.value as string[])}
+                label="Tags"
+                renderValue={(selected) => (
+                  <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                    {selected.map((value) => (
+                      <Chip key={value} label={value} size="small" />
+                    ))}
+                  </Box>
+                )}
+              >
+                {Array.from(new Set(expenses.flatMap(expense => expense.tags))).map((tag) => (
+                  <MenuItem key={tag} value={tag}>
+                    {tag}
                   </MenuItem>
                 ))}
               </Select>
@@ -496,6 +703,7 @@ const Expenses = () => {
             variant="contained"
             color="primary"
             startIcon={<AddIcon />}
+            size="small"
             onClick={() => {
               setFormData({
                 description: "",
@@ -505,6 +713,7 @@ const Expenses = () => {
                 endDate: "",
                 accountId: '',
                 notes: "",
+                tags: [],
               });
               setOpen(true);
             }}
@@ -548,6 +757,7 @@ const Expenses = () => {
                 <TableCell onClick={() => handleSort('accountId')} style={{ cursor: 'pointer' }}>
                   Account {sortField === 'accountId' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </TableCell>
+                <TableCell>Tags</TableCell>
                 <TableCell onClick={() => handleSort('percentage')} style={{ cursor: 'pointer' }}>
                   % {sortField === 'percentage' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </TableCell>
@@ -560,12 +770,14 @@ const Expenses = () => {
               {filteredExpenses.map((expense) => (
                 <TableRow key={expense.id}>
                   <TableCell>
-                    <IconButton onClick={() => handleOpen(expense)} size="small" color="primary">
-                      <EditIcon />
-                    </IconButton>
-                    <IconButton onClick={() => handleDeleteClick(expense.id)} size="small" color="error">
-                      <DeleteIcon />
-                    </IconButton>
+                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                      <IconButton onClick={() => handleOpen(expense)} size="small" color="primary">
+                        <EditIcon />
+                      </IconButton>
+                      <IconButton onClick={() => handleDeleteClick(expense.id)} size="small" color="error">
+                        <DeleteIcon />
+                      </IconButton>
+                    </Box>
                   </TableCell>
                   <TableCell>{expense.description}</TableCell>
                   <TableCell>${expense.amount.toFixed(2)}</TableCell>
@@ -574,6 +786,11 @@ const Expenses = () => {
                   <TableCell>
                     {expense.accountId ? accounts.find(acc => acc.id === expense.accountId)?.name || 'N/A' : 'N/A'}
                   </TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                      {renderTags(expense.tags)}
+                    </Box>
+                  </TableCell>
                   <TableCell>{calculatePercentage(expense.amount, expense.frequency).toFixed(1)}%</TableCell>
                   <TableCell align="right">
                     {formatCurrency(calculateFrequencyAmount(expense.amount, expense.frequency, selectedFrequency))}
@@ -581,11 +798,12 @@ const Expenses = () => {
                 </TableRow>
               ))}
               <TableRow>
-                <TableCell colSpan={7} align="right">
+                <TableCell colSpan={8} align="right">
                   <strong>Total</strong>
                 </TableCell>
                 <TableCell align="right">
-                  <strong>{formatCurrency(totalExpenses)}</strong>
+                  <strong>{formatCurrency(filteredExpenses.reduce((total, expense) => 
+                    total + calculateFrequencyAmount(expense.amount, expense.frequency, selectedFrequency), 0))}</strong>
                 </TableCell>
               </TableRow>
             </TableBody>
@@ -616,36 +834,39 @@ const Expenses = () => {
                 fullWidth
                 inputProps={{ step: "0.01", min: "0" }}
               />
-              <TextField
-                select
-                label="Frequency"
-                value={formData.frequency}
-                onChange={(e) => setFormData({ ...formData, frequency: e.target.value })}
-                required
-                fullWidth
-              >
-                {frequencies.map((option) => (
-                  <MenuItem key={option.value} value={option.value}>
-                    {option.label}
+              <FormControl fullWidth variant="outlined">
+                <InputLabel id="dialog-frequency-label" shrink>Frequency</InputLabel>
+                <Select
+                  labelId="dialog-frequency-label"
+                  value={formData.frequency}
+                  onChange={(e) => setFormData({ ...formData, frequency: e.target.value })}
+                  label="Frequency"
+                >
+                  {frequencies.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>
+                      {option.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <FormControl fullWidth variant="outlined">
+                <InputLabel id="dialog-account-label" shrink>Account</InputLabel>
+                <Select
+                  labelId="dialog-account-label"
+                  value={formData.accountId === '' ? '' : String(formData.accountId)}
+                  onChange={(e) => setFormData({ ...formData, accountId: e.target.value === '' ? '' : Number(e.target.value) })}
+                  label="Account"
+                >
+                  <MenuItem value="">
+                    <em>None</em>
                   </MenuItem>
-                ))}
-              </TextField>
-              <TextField
-                select
-                label="Account"
-                value={formData.accountId}
-                onChange={(e) => setFormData({ ...formData, accountId: e.target.value === '' ? '' : Number(e.target.value) })}
-                fullWidth
-              >
-                <MenuItem value="">
-                  <em>None</em>
-                </MenuItem>
-                {accounts.map((account) => (
-                  <MenuItem key={account.id} value={account.id}>
-                    {account.name} ({account.bank})
-                  </MenuItem>
-                ))}
-              </TextField>
+                  {accounts.map((account) => (
+                    <MenuItem key={account.id} value={String(account.id)}>
+                      {account.name} ({account.bank})
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
               <TextField
                 label="Next Due Date"
                 type="date"
@@ -655,20 +876,55 @@ const Expenses = () => {
                 fullWidth
                 InputLabelProps={{ shrink: true }}
               />
+              <FormControl fullWidth variant="outlined">
+                <Autocomplete
+                  multiple
+                  freeSolo
+                  options={availableTags}
+                  value={formData.tags}
+                  onChange={(event, newValue) => {
+                    setFormData({ ...formData, tags: newValue });
+                  }}
+                  renderTags={(value, getTagProps) =>
+                    value.map((option, index) => (
+                      <Chip
+                        label={option}
+                        size="small"
+                        {...getTagProps({ index })}
+                        sx={{
+                          backgroundColor: getTagColor(option),
+                          color: '#ffffff',
+                          '&:hover': {
+                            backgroundColor: getTagColor(option),
+                            opacity: 0.8
+                          }
+                        }}
+                      />
+                    ))
+                  }
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Tags"
+                      placeholder="Add tags"
+                    />
+                  )}
+                />
+              </FormControl>
               <TextField
                 label="Notes"
                 value={formData.notes}
                 onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                fullWidth
                 multiline
-                rows={3}
+                rows={2}
+                fullWidth
               />
             </Box>
           </DialogContent>
           <DialogActions>
             <Button onClick={handleClose}>Cancel</Button>
             <Button type="submit" variant="contained" color="primary">
-              {editingExpense ? "Save Changes" : "Add Expense"}
+              {editingExpense ? "Update" : "Add"}
             </Button>
           </DialogActions>
         </form>
