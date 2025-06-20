@@ -1,33 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Typography, Paper, CircularProgress, Alert, Select, MenuItem, FormControl, InputLabel, Chip } from '@mui/material';
+import { Box, Typography, CircularProgress, Alert, Select, MenuItem, FormControl, InputLabel, Chip } from '@mui/material';
 import type { SelectChangeEvent } from '@mui/material/Select';
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  ArcElement,
-  Title,
-  Tooltip,
-  Legend,
-} from 'chart.js';
-import { Line, Bar, Doughnut } from 'react-chartjs-2';
 import { API_URL, type Frequency, frequencies } from '../config';
 import { useFrequency } from '../contexts/FrequencyContext';
-
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  ArcElement,
-  Title,
-  Tooltip,
-  Legend
-);
 
 interface IncomeEntry {
   id: string;
@@ -44,6 +19,7 @@ interface ExpenseEntry {
   frequency: Frequency;
   nextDue: Date;
   tags: string[];
+  accountId?: number;
 }
 
 interface Account {
@@ -65,11 +41,43 @@ const formatCurrency = (amount: number, noCents: boolean = false): string => {
   }).format(amount).replace('A$', '$');
 };
 
-const AccountTile = ({ account, isIncomeSource, isExpenseSource, netIncome }: { 
+const calculateTotalForFrequency = (items: (IncomeEntry | ExpenseEntry)[], targetFrequency: Frequency) => {
+  return items.reduce((total, item) => {
+    const amount = Number(item.amount);
+    const itemFrequency = item.frequency;
+    let annualAmount = amount;
+    switch (itemFrequency) {
+      case 'daily': annualAmount = amount * 365; break;
+      case 'weekly': annualAmount = amount * 52; break;
+      case 'biweekly': annualAmount = amount * 26; break;
+      case 'monthly': annualAmount = amount * 12; break;
+      case 'quarterly': annualAmount = amount * 4; break;
+      case 'annually': annualAmount = amount; break;
+    }
+    switch (targetFrequency) {
+      case 'daily': return total + (annualAmount / 365);
+      case 'weekly': return total + (annualAmount / 52);
+      case 'biweekly': return total + (annualAmount / 26);
+      case 'monthly': return total + (annualAmount / 12);
+      case 'quarterly': return total + (annualAmount / 4);
+      case 'annually': return total + annualAmount;
+      default: return total + annualAmount;
+    }
+  }, 0);
+};
+
+const AccountTile = ({ 
+  account, 
+  isIncomeSource, 
+  isExpenseSource, 
+  netIncome,
+  accountExpensesTotal
+}: { 
   account: Account | { name: string, currentBalance: number }, 
   isIncomeSource?: boolean, 
   isExpenseSource?: boolean,
-  netIncome?: number
+  netIncome?: number,
+  accountExpensesTotal?: number
 }) => {
   const isPrimary = 'isPrimary' in account && !!account.isPrimary;
   
@@ -95,68 +103,94 @@ const AccountTile = ({ account, isIncomeSource, isExpenseSource, netIncome }: {
   }
 
   return (
-    <Box
-      sx={{
-        p: 2,
-        width: 240,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 1,
-        position: 'relative',
-        border: '2px solid',
-        borderColor: borderColor,
-        borderRadius: 1,
-      }}
-    >
-      <Typography 
-        variant="caption" 
-        sx={{ 
-          position: 'absolute',
-          top: '-8px',
-          left: '12px',
-          bgcolor: 'background.default',
-          px: 1,
-          fontWeight: 'bold',
-          color: labelColor,
-        }}
-      >
+    <Box sx={{ 
+      p: 2, 
+      width: 240, 
+      display: 'flex', 
+      flexDirection: 'column', 
+      gap: 1, 
+      position: 'relative', 
+      border: '2px solid', 
+      borderColor: borderColor, 
+      borderRadius: 1,
+      ...(isPrimary && {
+        animation: `pulseBorder 2s ease-in-out infinite`,
+        '@keyframes pulseBorder': {
+          '0%': { boxShadow: '0 0 4px #1976d2' },
+          '50%': { boxShadow: '0 0 10px #1976d2, 0 0 15px #1976d2' },
+          '100%': { boxShadow: '0 0 4px #1976d2' }
+        }
+      })
+    }}>
+      <Typography variant="caption" sx={{ position: 'absolute', top: '-8px', left: '12px', bgcolor: 'background.default', px: 1, fontWeight: 'bold', color: labelColor }}>
         {account.name}
       </Typography>
       
       {isPrimary && (
-        <Chip
-          label="Primary"
-          color="primary"
-          size="small"
-          sx={{ position: 'absolute', top: 8, right: 8, fontWeight: 'bold' }}
-        />
-      )}
-      
-      <Box mt={1}>
-        {(isIncomeSource || isExpenseSource) ? (
-            <Typography variant="h5" sx={{ textAlign: 'center', fontWeight: 'bold' }}>
-                {formatCurrency(account.currentBalance, true)}
-            </Typography>
-        ) : (
-            <>
-                <Typography variant="body1">
-                    Balance: <strong>{formatCurrency(account.currentBalance, true)}</strong>
-                </Typography>
-                {'requiredBalance' in account && !isPrimary && (
-                    <Typography variant="body2" color="text.secondary">
-                        Required: {formatCurrency(account.requiredBalance, true)}
-                    </Typography>
-                )}
-            </>
-        )}
-      </Box>
-      {'requiredBalance' in account && (
         <Box>
-          <Typography variant="body1" sx={{ color: diffColor, fontWeight: 'bold' }}>
-            {`${isPrimary ? 'Change' : 'Difference'}: ${diffText}`}
+          <Typography variant="body1" sx={{ color: diffColor, fontWeight: 'bold', textAlign: 'center', ...(isPrimary && {
+            animation: diff >= 0 ? 'pulseGreen 1.5s ease-in-out infinite' : 'pulseRed 1.5s ease-in-out infinite',
+            '@keyframes pulseGreen': { '0%': { opacity: 0.8, textShadow: '0 0 2px #4caf50' }, '50%': { opacity: 1, textShadow: '0 0 4px #4caf50' }, '100%': { opacity: 0.8, textShadow: '0 0 2px #4caf50' } },
+            '@keyframes pulseRed': { '0%': { opacity: 0.8, textShadow: '0 0 2px #f44336' }, '50%': { opacity: 1, textShadow: '0 0 4px #f44336' }, '100%': { opacity: 0.8, textShadow: '0 0 2px #f44336' } }
+          })}}>
+            {diffText}
           </Typography>
         </Box>
       )}
+
+      {!isPrimary && typeof accountExpensesTotal === 'number' && (
+        <Box>
+          <Typography variant="body1" sx={{ 
+            color: 'error.main', 
+            fontWeight: 'bold', 
+            textAlign: 'center',
+            animation: 'pulseRedExpense 1.5s ease-in-out infinite',
+            '@keyframes pulseRedExpense': {
+              '0%': { opacity: 0.8, textShadow: '0 0 2px #f44336' },
+              '50%': { opacity: 1, textShadow: '0 0 4px #f44336' },
+              '100%': { opacity: 0.8, textShadow: '0 0 2px #f44336' }
+            }
+          }}>
+            {formatCurrency(accountExpensesTotal, true)}
+          </Typography>
+        </Box>
+      )}
+
+      <Box mt={1}>
+        {(isIncomeSource || isExpenseSource) ? (
+          <Typography variant="h5" sx={{ 
+            textAlign: 'center', 
+            fontWeight: 'bold',
+            color: isIncomeSource ? 'success.main' : 'error.main',
+            animation: isIncomeSource 
+              ? 'pulseIncome 1.5s ease-in-out infinite' 
+              : 'pulseExpense 1.5s ease-in-out infinite',
+            '@keyframes pulseIncome': {
+              '0%': { opacity: 0.8, textShadow: '0 0 2px #4caf50' },
+              '50%': { opacity: 1, textShadow: '0 0 4px #4caf50' },
+              '100%': { opacity: 0.8, textShadow: '0 0 2px #4caf50' }
+            },
+            '@keyframes pulseExpense': {
+              '0%': { opacity: 0.8, textShadow: '0 0 2px #f44336' },
+              '50%': { opacity: 1, textShadow: '0 0 4px #f44336' },
+              '100%': { opacity: 0.8, textShadow: '0 0 2px #f44336' }
+            }
+          }}>
+            {isIncomeSource ? '+' : '-'}{formatCurrency(account.currentBalance, true)}
+          </Typography>
+        ) : (
+          <>
+            <Typography variant="body1" sx={{ textAlign: 'center' }}>
+              Balance: <strong>{formatCurrency(account.currentBalance, true)}</strong>
+            </Typography>
+            {'requiredBalance' in account && !isPrimary && (
+              <Typography variant="body2" sx={{ color: diffColor, fontWeight: 'bold', textAlign: 'center' }}>
+                Difference: {diffText}
+              </Typography>
+            )}
+          </>
+        )}
+      </Box>
     </Box>
   );
 };
@@ -173,358 +207,118 @@ const Dashboard = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        // Fetch incomes
-        const incomesResponse = await fetch(`${API_URL}/income`);
-        if (!incomesResponse.ok) throw new Error('Failed to fetch incomes');
-        const incomesData = await incomesResponse.json();
-        setIncomes(incomesData.map((income: any) => ({
-          ...income,
-          nextDue: new Date(income.nextDue)
-        })));
+        const [incomesRes, expensesRes, accountsRes] = await Promise.all([
+          fetch(`${API_URL}/income`),
+          fetch(`${API_URL}/expenses`),
+          fetch(`${API_URL}/accounts`),
+        ]);
 
-        // Fetch expenses
-        const expensesResponse = await fetch(`${API_URL}/expenses`);
-        if (!expensesResponse.ok) throw new Error('Failed to fetch expenses');
-        const expensesData = await expensesResponse.json();
-        setExpenses(expensesData.map((expense: any) => ({
-          ...expense,
-          nextDue: new Date(expense.nextDue),
-          tags: expense.tags || []
-        })));
+        if (!incomesRes.ok) throw new Error('Failed to fetch incomes');
+        if (!expensesRes.ok) throw new Error('Failed to fetch expenses');
+        if (!accountsRes.ok) throw new Error('Failed to fetch accounts');
 
-        // Fetch accounts
-        const accountsResponse = await fetch(`${API_URL}/accounts`);
-        if (!accountsResponse.ok) throw new Error('Failed to fetch accounts');
-        const accountsData = await accountsResponse.json();
+        const incomesData = await incomesRes.json();
+        const expensesData = await expensesRes.json();
+        const accountsData = await accountsRes.json();
+
+        setIncomes(incomesData.map((i: any) => ({ ...i, nextDue: new Date(i.nextDue) })));
+        setExpenses(expensesData.map((e: any) => ({ ...e, nextDue: new Date(e.nextDue), tags: e.tags || [], accountId: e.accountId })));
         setAccounts(accountsData);
 
-      } catch (error) {
-        console.error('Error fetching data:', error);
-        setError('Failed to load data. Please try again.');
+      } catch (err) {
+        console.error('Error fetching data:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load data. Please try again.');
       } finally {
         setLoading(false);
       }
     };
-
     fetchData();
   }, []);
 
-  const calculateTotal = (items: (IncomeEntry | ExpenseEntry)[], targetFrequency: Frequency) => {
-    return items.reduce((total, item) => {
-      const amount = Number(item.amount);
-      const itemFrequency = item.frequency;
-
-      // Convert to annual amount first
-      let annualAmount = amount;
-      switch (itemFrequency) {
-        case 'daily':
-          annualAmount = amount * 365;
-          break;
-        case 'weekly':
-          annualAmount = amount * 52;
-          break;
-        case 'biweekly':
-          annualAmount = amount * 26;
-          break;
-        case 'monthly':
-          annualAmount = amount * 12;
-          break;
-        case 'quarterly':
-          annualAmount = amount * 4;
-          break;
-        case 'annually':
-          annualAmount = amount;
-          break;
-      }
-
-      // Then convert to target frequency
-      switch (targetFrequency) {
-        case 'daily':
-          return total + (annualAmount / 365);
-        case 'weekly':
-          return total + (annualAmount / 52);
-        case 'biweekly':
-          return total + (annualAmount / 26);
-        case 'monthly':
-          return total + (annualAmount / 12);
-        case 'quarterly':
-          return total + (annualAmount / 4);
-        case 'annually':
-          return total + annualAmount;
-        default:
-          return total + annualAmount;
-      }
-    }, 0);
-  };
-
-  if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
-  if (error) {
-    return (
-      <Box sx={{ p: 3 }}>
-        <Alert severity="error">{error}</Alert>
-      </Box>
-    );
-  }
-
-  const totalIncome = calculateTotal(incomes, frequency);
-  const totalExpenses = calculateTotal(expenses, frequency);
+  const totalIncome = calculateTotalForFrequency(incomes, frequency);
+  const totalExpenses = calculateTotalForFrequency(expenses, frequency);
   const netIncome = totalIncome - totalExpenses;
-  
+
   const incomeAccount = { name: "Income", currentBalance: totalIncome };
   const expenseAccount = { name: "Expenses", currentBalance: totalExpenses };
 
-  // Sort accounts: primary first, then by name
   const sortedAccounts = [...accounts].sort((a, b) => {
     if (a.isPrimary && !b.isPrimary) return -1;
     if (!a.isPrimary && b.isPrimary) return 1;
-    if (a.name && b.name) {
-      return a.name.localeCompare(b.name);
-    }
-    return 0;
+    return a.name.localeCompare(b.name);
   });
 
   const primaryAccount = sortedAccounts.find(a => a.isPrimary);
   const otherAccounts = sortedAccounts.filter(a => !a.isPrimary);
 
-  // Expenses by Category Chart
-  const expensesByCategory = {
-    labels: Array.from(new Set(expenses.flatMap(expense => expense.tags))),
-    datasets: [{
-      label: `Expenses (${frequency})`,
-      data: Array.from(new Set(expenses.flatMap(expense => expense.tags))).map(tag => {
-        const tagExpenses = expenses.filter(expense => expense.tags.includes(tag));
-        return calculateTotal(tagExpenses, frequency);
-      }),
-      backgroundColor: Array.from(new Set(expenses.flatMap(expense => expense.tags))).map(tag => {
-        const colors = [
-          'rgba(255, 99, 132, 0.6)',
-          'rgba(54, 162, 235, 0.6)',
-          'rgba(255, 206, 86, 0.6)',
-          'rgba(75, 192, 192, 0.6)',
-          'rgba(153, 102, 255, 0.6)',
-          'rgba(255, 159, 64, 0.6)',
-          'rgba(199, 199, 199, 0.6)',
-          'rgba(83, 102, 255, 0.6)',
-          'rgba(40, 159, 64, 0.6)',
-          'rgba(210, 199, 199, 0.6)',
-        ];
-        const index = tag.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-        return colors[index % colors.length];
-      }),
-      borderColor: Array.from(new Set(expenses.flatMap(expense => expense.tags))).map(tag => {
-        const colors = [
-          'rgba(255, 99, 132, 1)',
-          'rgba(54, 162, 235, 1)',
-          'rgba(255, 206, 86, 1)',
-          'rgba(75, 192, 192, 1)',
-          'rgba(153, 102, 255, 1)',
-          'rgba(255, 159, 64, 1)',
-          'rgba(199, 199, 199, 1)',
-          'rgba(83, 102, 255, 1)',
-          'rgba(40, 159, 64, 1)',
-          'rgba(210, 199, 199, 1)',
-        ];
-        const index = tag.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-        return colors[index % colors.length];
-      }),
-      borderWidth: 1,
-    }],
-  };
-
-  const handleFrequencyChange = (event: SelectChangeEvent) => {
-    setFrequency(event.target.value as Frequency);
-  };
+  if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}><CircularProgress /></Box>;
+  if (error) return <Box sx={{ p: 3 }}><Alert severity="error">{error}</Alert></Box>;
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
-        mb: 4,
-        flexWrap: 'wrap',
-        gap: 2
-      }}>
-        <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
-          Dashboard
-        </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4, flexWrap: 'wrap', gap: 2 }}>
+        <Typography variant="h4" sx={{ fontWeight: 'bold' }}>Dashboard</Typography>
         <FormControl sx={{ minWidth: 150 }}>
           <InputLabel>Display Frequency</InputLabel>
-          <Select
-            value={frequency}
-            label="Display Frequency"
-            onChange={handleFrequencyChange}
-            size="small"
-          >
-            {frequencies.map((freq) => (
-              <MenuItem key={freq.value} value={freq.value}>
-                {freq.label}
-              </MenuItem>
-            ))}
+          <Select value={frequency} label="Display Frequency" onChange={(e) => setFrequency(e.target.value as Frequency)} size="small">
+            {frequencies.map((f) => <MenuItem key={f.value} value={f.value}>{f.label}</MenuItem>)}
           </Select>
         </FormControl>
       </Box>
 
-      {/* Account Tree */}
-      <Box sx={{ my: 5 }}>
-        <Box sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '60px',
-        }}>
-           {/* Income Tile */}
-            <Box sx={{ position: 'relative' }}>
-                <AccountTile account={incomeAccount} isIncomeSource={true} />
-            </Box>
-
-            {/* Primary Account with connector from Income */}
-            {primaryAccount && (
-              <Box sx={{
-                  position: 'relative',
-                  '&::before': {
-                      content: '""',
-                      position: 'absolute',
-                      bottom: '100%',
-                      left: '50%',
-                      transform: 'translateX(-50%)',
-                      width: '2px',
-                      height: '60px',
-                      bgcolor: 'white',
-                  },
-              }}>
-                  <AccountTile account={primaryAccount} netIncome={netIncome} />
-              </Box>
-            )}
-
-            {/* Expense Tile with connector from Primary */}
-            {primaryAccount && (
-              <Box sx={{
-                  position: 'relative',
-                  '&::before': {
-                      content: '""',
-                      position: 'absolute',
-                      bottom: '100%',
-                      left: '50%',
-                      transform: 'translateX(-50%)',
-                      width: '2px',
-                      height: '60px',
-                      bgcolor: 'white',
-                  },
-              }}>
-                  <AccountTile account={expenseAccount} isExpenseSource={true} />
-              </Box>
-            )}
-
-            {/* Other Accounts with horizontal connectors */}
-            {primaryAccount && otherAccounts.length > 0 && (
-                <Box sx={{
-                    display: 'flex',
-                    justifyContent: 'center',
-                    gap: 4,
-                    position: 'relative',
-                    // Vertical line from expense tile
-                    '&::before': {
-                        content: '""',
-                        position: 'absolute',
-                        bottom: '100%',
-                        left: '50%',
-                        transform: 'translateX(-50%)',
-                        width: '2px',
-                        height: '60px',
-                        bgcolor: 'white',
-                    },
-                    // Continuous horizontal line across all accounts
-                    '&::after': {
-                        content: '""',
-                        position: 'absolute',
-                        top: 0,
-                        left: '50%',
-                        transform: 'translateX(-50%)',
-                        width: '1000px', // Fixed wide width to ensure coverage
-                        height: '2px',
-                        bgcolor: 'white',
-                    },
-                }}>
-                    {otherAccounts.map((account, index) => (
-                        <Box key={`account-${account.id}-${index}`} sx={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            position: 'relative',
-                            pt: '60px', // Space for connectors
-                            // Vertical line part for each account
-                            '&::before': {
-                                content: '""',
-                                position: 'absolute',
-                                top: 0,
-                                left: '50%',
-                                transform: 'translateX(-50%)',
-                                width: '2px',
-                                height: '60px',
-                                bgcolor: 'white',
-                            }
-                        }}>
-                           <AccountTile account={account} />
-                        </Box>
-                    ))}
-                </Box>
-            )}
+      <Box sx={{ my: 5, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '60px' }}>
+        <Box sx={{ position: 'relative' }}>
+          <AccountTile account={incomeAccount} isIncomeSource={true} />
         </Box>
-      </Box>
 
-      {/* Charts Grid */}
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-        <Box sx={{ flex: '1 1 500px', minWidth: 300 }}>
-          <Paper
-            elevation={2}
-            sx={{
-              p: 3,
-              height: '100%',
-              display: 'flex',
-              flexDirection: 'column'
-            }}
-          >
-            <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold' }}>
-              Expenses by Category
-            </Typography>
-            <Box sx={{ flex: 1, minHeight: 300 }}>
-              <Bar 
-                data={expensesByCategory} 
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                      callbacks: {
-                        label: (context) => formatCurrency(context.raw as number)
-                      }
-                    }
-                  },
-                  scales: {
-                    y: {
-                      beginAtZero: true,
-                      ticks: {
-                        callback: (value) => formatCurrency(value as number)
-                      }
-                    }
-                  }
-                }} 
-              />
-            </Box>
-          </Paper>
-        </Box>
-        <Box sx={{ flex: '1 1 500px', minWidth: 300 }}>
-            {/* You can add another chart here if you want */}
-        </Box>
+        {primaryAccount && (
+          <Box sx={{ position: 'relative', '&::before': { content: '""', position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)', width: '2px', height: '60px', bgcolor: 'success.main', animation: 'flowDown 1.5s ease-in-out infinite', '@keyframes flowDown': { '0%': { background: 'linear-gradient(to bottom, #4caf50 0%, transparent 0%)', boxShadow: '0 0 5px #4caf50' }, '20%': { background: 'linear-gradient(to bottom, #4caf50 0%, #4caf50 20%, transparent 20%)', boxShadow: '0 0 8px #4caf50' }, '40%': { background: 'linear-gradient(to bottom, #4caf50 0%, #4caf50 40%, transparent 40%)', boxShadow: '0 0 10px #4caf50, 0 0 15px #4caf50' }, '60%': { background: 'linear-gradient(to bottom, #4caf50 0%, #4caf50 60%, transparent 60%)', boxShadow: '0 0 12px #4caf50, 0 0 20px #4caf50' }, '80%': { background: 'linear-gradient(to bottom, #4caf50 0%, #4caf50 80%, transparent 80%)', boxShadow: '0 0 8px #4caf50' }, '100%': { background: 'linear-gradient(to bottom, #4caf50 0%, #4caf50 100%)', boxShadow: '0 0 5px #4caf50' } } } }}>
+            <AccountTile account={primaryAccount} netIncome={netIncome} />
+          </Box>
+        )}
+
+        {primaryAccount && (
+          <Box sx={{ position: 'relative', '&::before': { content: '""', position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)', width: '2px', height: '60px', bgcolor: 'error.main', animation: 'flowDownRed 1.5s ease-in-out infinite', '@keyframes flowDownRed': { '0%': { background: 'linear-gradient(to bottom, #f44336 0%, transparent 0%)', boxShadow: '0 0 5px #f44336' }, '20%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 20%, transparent 20%)', boxShadow: '0 0 8px #f44336' }, '40%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 40%, transparent 40%)', boxShadow: '0 0 10px #f44336, 0 0 15px #f44336' }, '60%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 60%, transparent 60%)', boxShadow: '0 0 12px #f44336, 0 0 20px #f44336' }, '80%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 80%, transparent 80%)', boxShadow: '0 0 8px #f44336' }, '100%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 100%)', boxShadow: '0 0 5px #f44336' } } } }}>
+            <AccountTile account={expenseAccount} isExpenseSource={true} />
+          </Box>
+        )}
+
+        {primaryAccount && otherAccounts.length > 0 && (
+          <Box sx={{ 
+            display: 'flex', 
+            justifyContent: 'center', 
+            gap: 4, 
+            position: 'relative', 
+            flexWrap: 'wrap',
+            '&::before': {
+              content: '""',
+              position: 'absolute',
+              bottom: '100%',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              width: '2px',
+              height: '60px',
+              bgcolor: 'error.main',
+              animation: 'flowDownRed 1.5s ease-in-out infinite',
+              '@keyframes flowDownRed': {
+                '0%': { background: 'linear-gradient(to bottom, #f44336 0%, transparent 0%)', boxShadow: '0 0 5px #f44336' },
+                '20%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 20%, transparent 20%)', boxShadow: '0 0 8px #f44336' },
+                '40%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 40%, transparent 40%)', boxShadow: '0 0 10px #f44336, 0 0 15px #f44336' },
+                '60%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 60%, transparent 60%)', boxShadow: '0 0 12px #f44336, 0 0 20px #f44336' },
+                '80%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 80%, transparent 80%)', boxShadow: '0 0 8px #f44336' },
+                '100%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 100%)', boxShadow: '0 0 5px #f44336' }
+              }
+            }
+          }}>
+            {otherAccounts.map((account) => {
+              const accountExpenses = expenses.filter(e => e.accountId === account.id);
+              const totalAccountExpenses = calculateTotalForFrequency(accountExpenses, frequency);
+              return (
+                <AccountTile key={account.id} account={account} accountExpensesTotal={totalAccountExpenses} />
+              );
+            })}
+          </Box>
+        )}
       </Box>
     </Box>
   );
