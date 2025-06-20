@@ -6,6 +6,7 @@ import { Pie } from 'react-chartjs-2';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
 import { API_URL, type Frequency, frequencies } from '../config';
 import { useFrequency } from '../contexts/FrequencyContext';
+import { apiCall } from '../utils/api';
 
 ChartJS.register(ArcElement, Tooltip, Legend, ChartDataLabels);
 
@@ -349,10 +350,10 @@ const Dashboard = () => {
       setLoading(true);
       try {
         const [incomesRes, expensesRes, accountsRes, tagsRes] = await Promise.all([
-          fetch(`${API_URL}/income`),
-          fetch(`${API_URL}/expenses`),
-          fetch(`${API_URL}/accounts`),
-          fetch(`${API_URL}/tags`),
+          apiCall('/income'),
+          apiCall('/expenses'),
+          apiCall('/accounts'),
+          apiCall('/tags'),
         ]);
 
         if (!incomesRes.ok) throw new Error('Failed to fetch incomes');

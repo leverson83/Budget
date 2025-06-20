@@ -39,11 +39,9 @@ import type { SelectChangeEvent } from '@mui/material/Select';
 import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Info as InfoIcon, Calculate as CalculateIcon } from "@mui/icons-material";
 import { format, addDays, addMonths, addWeeks, addYears, isAfter, isBefore } from "date-fns";
 import { API_URL, frequencies, type Frequency } from "../config";
-import axios from "axios";
-import { v4 as uuidv4 } from 'uuid';
 import { useFrequency } from '../contexts/FrequencyContext';
-import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
-import { LocalizationProvider, DatePicker } from '@mui/x-date-pickers';
+import { v4 as uuidv4 } from 'uuid';
+import { apiCall } from '../utils/api';
 
 interface Expense {
   id: string;
@@ -179,7 +177,7 @@ const Expenses = () => {
       setLoading(true);
       try {
         // Fetch expenses
-        const expensesResponse = await fetch(`${API_URL}/expenses`);
+        const expensesResponse = await apiCall('/expenses');
         if (!expensesResponse.ok) {
           throw new Error('Failed to fetch expenses');
         }
@@ -188,7 +186,7 @@ const Expenses = () => {
           const { isCalculated, calculatedAmounts, tags, ...rest } = expense;
           return {
             ...rest,
-          nextDue: new Date(expense.nextDue),
+            nextDue: new Date(expense.nextDue),
             tags: tags || [],
             isCalculated: Boolean(isCalculated),
             calculatedAmounts: (calculatedAmounts ?? []) as { value: string; frequency: Frequency }[],
@@ -197,7 +195,7 @@ const Expenses = () => {
         setExpenses(processedExpenses);
 
         // Fetch accounts
-        const accountsResponse = await fetch(`${API_URL}/accounts`);
+        const accountsResponse = await apiCall('/accounts');
         if (!accountsResponse.ok) {
           throw new Error('Failed to fetch accounts');
         }
@@ -205,7 +203,7 @@ const Expenses = () => {
         setAccounts(accountsData);
 
         // Fetch tags
-        const tagsResponse = await fetch(`${API_URL}/tags`);
+        const tagsResponse = await apiCall('/tags');
         if (!tagsResponse.ok) {
           throw new Error('Failed to fetch tags');
         }
@@ -224,7 +222,7 @@ const Expenses = () => {
         setTagColors(colorsMap);
 
         // Fetch saved frequency
-        const frequencyResponse = await fetch(`${API_URL}/settings/frequency`);
+        const frequencyResponse = await apiCall('/settings/frequency');
         if (!frequencyResponse.ok) {
           console.error('Failed to fetch frequency setting');
         }
@@ -232,6 +230,7 @@ const Expenses = () => {
         if (frequency) {
           setFrequency(frequency);
         }
+
       } catch (error) {
         console.error('Error fetching data:', error);
         setError('Failed to load data. Please try again.');
@@ -245,7 +244,7 @@ const Expenses = () => {
 
   const saveFrequency = async (newFrequency: Frequency) => {
     try {
-      const response = await fetch(`${API_URL}/settings/frequency`, {
+      const response = await apiCall('/settings/frequency', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -274,7 +273,7 @@ const Expenses = () => {
   const fetchExpenses = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_URL}/expenses`);
+      const response = await apiCall('/expenses');
       if (!response.ok) {
         throw new Error("Failed to fetch expenses");
       }
@@ -283,7 +282,7 @@ const Expenses = () => {
         const { isCalculated, calculatedAmounts, tags, ...rest } = expense;
         return {
           ...rest,
-        nextDue: new Date(expense.nextDue),
+          nextDue: new Date(expense.nextDue),
           tags: tags || [],
           isCalculated: Boolean(isCalculated),
           calculatedAmounts: (calculatedAmounts ?? []) as { value: string; frequency: Frequency }[],
@@ -301,7 +300,7 @@ const Expenses = () => {
 
   const fetchAccounts = async () => {
     try {
-      const response = await fetch(`${API_URL}/accounts`);
+      const response = await apiCall('/accounts');
       if (!response.ok) {
         throw new Error('Failed to fetch accounts');
       }
@@ -316,6 +315,79 @@ const Expenses = () => {
     fetchExpenses();
     fetchAccounts();
   }, []);
+
+  const handleDeleteConfirm = async () => {
+    if (!expenseToDelete) return;
+
+    try {
+      const response = await apiCall(`/expenses/${expenseToDelete.id}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to delete expense");
+      }
+
+      setExpenses(prevExpenses => prevExpenses.filter(expense => expense.id !== expenseToDelete.id));
+      setDeleteDialogOpen(false);
+      setExpenseToDelete(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An error occurred");
+      console.error("Error deleting expense:", err);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const expenseData = {
+        id: editingExpense ? editingExpense.id : uuidv4(),
+        description: formData.description,
+        amount: parseFloat(formData.amount),
+        frequency: formData.frequency,
+        nextDue: formData.startDate,
+        notes: formData.notes,
+        accountId: formData.accountId === '' ? null : formData.accountId,
+        tags: formData.tags || []
+      };
+
+      if (editingExpense) {
+        const response = await apiCall(`/expenses/${editingExpense.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(expenseData),
+        });
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to update expense');
+        }
+        setSuccessMessage("Expense updated successfully");
+      } else {
+        const response = await apiCall('/expenses', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(expenseData),
+        });
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to create expense');
+        }
+        setSuccessMessage("Expense added successfully");
+      }
+
+      setShowSuccess(true);
+      handleClose();
+      fetchExpenses();
+    } catch (error) {
+      console.error('Error saving expense:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to save expense');
+      setShowError(true);
+    }
+  };
 
   const handleOpen = (expense?: Expense) => {
     if (expense) {
@@ -364,61 +436,6 @@ const Expenses = () => {
   const handleDeleteClick = (id: string) => {
     setExpenseToDelete(expenses.find(e => e.id === id) || null);
     setDeleteDialogOpen(true);
-  };
-
-  const handleDeleteConfirm = async () => {
-    if (!expenseToDelete) return;
-
-    try {
-      const response = await fetch(`${API_URL}/expenses/${expenseToDelete.id}`, {
-        method: "DELETE",
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to delete expense");
-      }
-
-      setExpenses(prevExpenses => prevExpenses.filter(expense => expense.id !== expenseToDelete.id));
-      setDeleteDialogOpen(false);
-      setExpenseToDelete(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred");
-      console.error("Error deleting expense:", err);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const expenseData = {
-        id: editingExpense ? editingExpense.id : uuidv4(),
-        description: formData.description,
-        amount: parseFloat(formData.amount),
-        frequency: formData.frequency,
-        nextDue: formData.startDate,
-        notes: formData.notes,
-        accountId: formData.accountId === '' ? null : formData.accountId,
-        tags: formData.tags || []
-      };
-
-      if (editingExpense) {
-        const response = await axios.put(`${API_URL}/expenses/${editingExpense.id}`, expenseData);
-        console.log('Update response:', response.data);
-        setSuccessMessage("Expense updated successfully");
-      } else {
-        const response = await axios.post(`${API_URL}/expenses`, expenseData);
-        console.log('Create response:', response.data);
-        setSuccessMessage("Expense added successfully");
-      }
-
-      setShowSuccess(true);
-      handleClose();
-      fetchExpenses();
-    } catch (error) {
-      console.error('Error saving expense:', error);
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to save expense');
-      setShowError(true);
-    }
   };
 
   const handleSort = (field: SortField) => {
@@ -746,11 +763,23 @@ const Expenses = () => {
     };
     if (editingCalcId) {
       // Update
-      await axios.put(`${API_URL}/expenses/${editingCalcId}`, payload);
+      await apiCall(`/expenses/${editingCalcId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
       setExpenses(prev => prev.map(e => e.id === editingCalcId ? { ...e, ...payload, applyFuzziness: false, tags: payload.tags as string[] } : e));
     } else {
       // Create
-      await axios.post(`${API_URL}/expenses`, payload);
+      await apiCall('/expenses', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
       setExpenses(prev => [...prev, { ...payload, applyFuzziness: false, tags: payload.tags as string[] }]);
     }
     setOpenCalc(false);

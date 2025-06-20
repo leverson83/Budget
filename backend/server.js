@@ -2,15 +2,20 @@ const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
 const path = require('path');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 const port = 3001;
+
+// JWT secret key (in production, use environment variable)
+const JWT_SECRET = 'your-secret-key-change-in-production';
 
 // Middleware
 app.use(cors({
   origin: 'http://localhost:3000',
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
 app.use(express.json());
@@ -91,14 +96,263 @@ const db = new sqlite3.Database(path.join(__dirname, 'budget.db'), (err) => {
           FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
         )
       `);
+
+      // Create users table
+      db.run(`
+        CREATE TABLE IF NOT EXISTS users (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          email TEXT UNIQUE NOT NULL,
+          password_hash TEXT,
+          is_initialized INTEGER DEFAULT 0,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          admin INTEGER DEFAULT 0
+        )
+      `, (err) => {
+        if (err) {
+          console.error('Error creating users table:', err);
+        } else {
+          // Insert initial users if they don't exist
+          db.run(`
+            INSERT OR IGNORE INTO users (name, email) 
+            VALUES ('Luke', 'leverson83@gmail.com')
+          `);
+          db.run(`
+            INSERT OR IGNORE INTO users (name, email) 
+            VALUES ('Marina', 'marinahu1990@hotmail.com')
+          `);
+        }
+      });
     });
   }
 });
 
+// Authentication middleware
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+    req.user = user;
+    next();
+  });
+};
+
+// Middleware to check admin
+function requireAdmin(req, res, next) {
+  const userEmail = req.user.email;
+  db.get('SELECT admin FROM users WHERE email = ?', [userEmail], (err, row) => {
+    if (err || !row) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    if (row.admin !== 1) {
+      return res.status(403).json({ error: 'Admin only' });
+    }
+    next();
+  });
+}
+
 // API Routes
 
+// Authentication endpoints
+app.post('/api/auth/login', (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+
+  db.get('SELECT * FROM users WHERE email = ?', [email], async (err, user) => {
+    if (err) {
+      console.error('Error finding user:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check if user has set a password
+    if (!user.password_hash) {
+      return res.json({ 
+        needsPassword: true, 
+        user: { id: user.id, name: user.name, email: user.email, admin: !!user.admin }
+      });
+    }
+
+    // User has password, require it for login
+    const { password } = req.body;
+    if (!password) {
+      return res.status(400).json({ error: 'Password is required' });
+    }
+
+    const isValidPassword = await bcrypt.compare(password, user.password_hash);
+    if (!isValidPassword) {
+      return res.status(401).json({ error: 'Invalid password' });
+    }
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { userId: user.id, email: user.email, name: user.name },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    res.json({ 
+      token, 
+      user: { id: user.id, name: user.name, email: user.email, admin: !!user.admin },
+      needsPassword: false
+    });
+  });
+});
+
+app.post('/api/auth/set-password', (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+  }
+
+  bcrypt.hash(password, 10, (err, hash) => {
+    if (err) {
+      console.error('Error hashing password:', err);
+      return res.status(500).json({ error: 'Error setting password' });
+    }
+
+    db.run(
+      'UPDATE users SET password_hash = ?, is_initialized = 1 WHERE email = ?',
+      [hash, email],
+      function(err) {
+        if (err) {
+          console.error('Error updating user password:', err);
+          return res.status(500).json({ error: 'Database error' });
+        }
+
+        if (this.changes === 0) {
+          return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Generate JWT token
+        const token = jwt.sign(
+          { email },
+          JWT_SECRET,
+          { expiresIn: '24h' }
+        );
+
+        res.json({ 
+          message: 'Password set successfully',
+          token
+        });
+      }
+    );
+  });
+});
+
+app.post('/api/auth/register', (req, res) => {
+  const { email, password, name } = req.body;
+
+  if (!email || !password || !name) {
+    return res.status(400).json({ error: 'Email, password, and name are required' });
+  }
+
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+  }
+
+  // Check if user already exists
+  db.get('SELECT * FROM users WHERE email = ?', [email], (err, existingUser) => {
+    if (err) {
+      console.error('Error checking existing user:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    if (existingUser) {
+      return res.status(409).json({ error: 'User with this email already exists' });
+    }
+
+    // Hash password and create user
+    bcrypt.hash(password, 10, (err, hash) => {
+      if (err) {
+        console.error('Error hashing password:', err);
+        return res.status(500).json({ error: 'Error creating account' });
+      }
+
+      db.run(
+        'INSERT INTO users (name, email, password_hash, is_initialized) VALUES (?, ?, ?, 1)',
+        [name, email, hash],
+        function(err) {
+          if (err) {
+            console.error('Error creating user:', err);
+            return res.status(500).json({ error: 'Database error' });
+          }
+
+          // Generate JWT token
+          const token = jwt.sign(
+            { userId: this.lastID, email, name },
+            JWT_SECRET,
+            { expiresIn: '24h' }
+          );
+
+          res.json({ 
+            message: 'Account created successfully',
+            token,
+            user: { id: this.lastID, name, email }
+          });
+        }
+      );
+    });
+  });
+});
+
+// Delete user by email (admin function)
+app.delete('/api/auth/users/:email', authenticateToken, (req, res) => {
+  const { email } = req.params;
+
+  if (!email) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+
+  db.run('DELETE FROM users WHERE email = ?', [email], function(err) {
+    if (err) {
+      console.error('Error deleting user:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    if (this.changes === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({ 
+      message: 'User deleted successfully',
+      changes: this.changes
+    });
+  });
+});
+
+app.get('/api/auth/check', authenticateToken, (req, res) => {
+  res.json({ 
+    authenticated: true, 
+    user: { 
+      id: req.user.userId, 
+      email: req.user.email, 
+      name: req.user.name 
+    } 
+  });
+});
+
 // Get all income entries
-app.get('/api/income', (req, res) => {
+app.get('/api/income', authenticateToken, (req, res) => {
   db.all('SELECT * FROM income', [], (err, rows) => {
     if (err) {
       console.error('Error fetching incomes:', err);
@@ -115,7 +369,7 @@ app.get('/api/income', (req, res) => {
 });
 
 // Add new income entry
-app.post('/api/income', (req, res) => {
+app.post('/api/income', authenticateToken, (req, res) => {
   const { id, description, amount, frequency, nextDue } = req.body;
   
   if (!id || !description || !amount || !frequency || !nextDue) {
@@ -138,7 +392,7 @@ app.post('/api/income', (req, res) => {
 });
 
 // Update income entry
-app.put('/api/income/:id', (req, res) => {
+app.put('/api/income/:id', authenticateToken, (req, res) => {
   const { description, amount, frequency, nextDue } = req.body;
   const { id } = req.params;
 
@@ -162,7 +416,7 @@ app.put('/api/income/:id', (req, res) => {
 });
 
 // Delete income entry
-app.delete('/api/income/:id', (req, res) => {
+app.delete('/api/income/:id', authenticateToken, (req, res) => {
   const { id } = req.params;
 
   db.run('DELETE FROM income WHERE id = ?', [id], function(err) {
@@ -176,7 +430,7 @@ app.delete('/api/income/:id', (req, res) => {
 });
 
 // Expenses endpoints
-app.get('/api/expenses', (req, res) => {
+app.get('/api/expenses', authenticateToken, (req, res) => {
   db.all(`
     SELECT e.*, 
            GROUP_CONCAT(t.name) as tags,
@@ -203,7 +457,7 @@ app.get('/api/expenses', (req, res) => {
 });
 
 // Add new expense entry
-app.post('/api/expenses', (req, res) => {
+app.post('/api/expenses', authenticateToken, (req, res) => {
   const { id, description, amount, frequency, nextDue, applyFuzziness, notes, tags, accountId } = req.body;
   
   if (!id || !description || !amount || !frequency || !nextDue) {
@@ -309,7 +563,7 @@ app.post('/api/expenses', (req, res) => {
 });
 
 // Update expense entry
-app.put('/api/expenses/:id', (req, res) => {
+app.put('/api/expenses/:id', authenticateToken, (req, res) => {
   const { description, amount, frequency, nextDue, applyFuzziness, notes, tags, accountId } = req.body;
   const { id } = req.params;
 
@@ -433,7 +687,7 @@ app.put('/api/expenses/:id', (req, res) => {
 });
 
 // Delete expense entry
-app.delete('/api/expenses/:id', (req, res) => {
+app.delete('/api/expenses/:id', authenticateToken, (req, res) => {
   const { id } = req.params;
 
   db.run('DELETE FROM expenses WHERE id = ?', [id], function(err) {
@@ -447,7 +701,7 @@ app.delete('/api/expenses/:id', (req, res) => {
 });
 
 // Settings endpoints
-app.get('/api/settings', (req, res) => {
+app.get('/api/settings', authenticateToken, (req, res) => {
   db.all('SELECT * FROM settings', [], (err, rows) => {
     if (err) {
       console.error('Error fetching settings:', err);
@@ -492,7 +746,7 @@ app.get('/api/settings', (req, res) => {
 });
 
 // Get frequency setting
-app.get('/api/settings/frequency', (req, res) => {
+app.get('/api/settings/frequency', authenticateToken, (req, res) => {
   db.get('SELECT value FROM settings WHERE key = ?', ['frequency'], (err, row) => {
     if (err) {
       res.status(500).json({ error: err.message });
@@ -503,7 +757,7 @@ app.get('/api/settings/frequency', (req, res) => {
 });
 
 // Update frequency setting
-app.post('/api/settings/frequency', (req, res) => {
+app.post('/api/settings/frequency', authenticateToken, (req, res) => {
   const { frequency } = req.body;
   db.run(
     'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
@@ -518,7 +772,7 @@ app.post('/api/settings/frequency', (req, res) => {
   );
 });
 
-app.put('/api/settings', (req, res) => {
+app.put('/api/settings', authenticateToken, (req, res) => {
   const settings = req.body;
   
   // Convert settings object to array of key-value pairs
@@ -551,7 +805,7 @@ app.put('/api/settings', (req, res) => {
 });
 
 // Accounts API endpoints
-app.get('/api/accounts', (req, res) => {
+app.get('/api/accounts', authenticateToken, (req, res) => {
   db.all('SELECT * FROM accounts', [], (err, rows) => {
     if (err) {
       res.status(500).json({ error: err.message });
@@ -561,7 +815,7 @@ app.get('/api/accounts', (req, res) => {
   });
 });
 
-app.post('/api/accounts', (req, res) => {
+app.post('/api/accounts', authenticateToken, (req, res) => {
   const { name, bank, currentBalance, requiredBalance, isPrimary, diff } = req.body;
   
   if (!name || !bank || currentBalance === undefined || requiredBalance === undefined) {
@@ -581,7 +835,7 @@ app.post('/api/accounts', (req, res) => {
   );
 });
 
-app.put('/api/accounts/:id', (req, res) => {
+app.put('/api/accounts/:id', authenticateToken, (req, res) => {
   const { name, bank, currentBalance, requiredBalance, isPrimary, diff } = req.body;
   const id = req.params.id;
 
@@ -602,7 +856,7 @@ app.put('/api/accounts/:id', (req, res) => {
   );
 });
 
-app.delete('/api/accounts/:id', (req, res) => {
+app.delete('/api/accounts/:id', authenticateToken, (req, res) => {
   db.run('DELETE FROM accounts WHERE id = ?', req.params.id, function(err) {
     if (err) {
       res.status(500).json({ error: err.message });
@@ -613,7 +867,7 @@ app.delete('/api/accounts/:id', (req, res) => {
 });
 
 // Get all tags
-app.get('/api/tags', (req, res) => {
+app.get('/api/tags', authenticateToken, (req, res) => {
   db.all('SELECT name, color FROM tags ORDER BY name', [], (err, rows) => {
     if (err) {
       console.error('Error fetching tags:', err);
@@ -625,7 +879,7 @@ app.get('/api/tags', (req, res) => {
 });
 
 // Add new tag
-app.post('/api/tags', (req, res) => {
+app.post('/api/tags', authenticateToken, (req, res) => {
   const { name, color } = req.body;
   
   if (!name) {
@@ -644,7 +898,7 @@ app.post('/api/tags', (req, res) => {
 });
 
 // Update tag
-app.put('/api/tags/:name', (req, res) => {
+app.put('/api/tags/:name', authenticateToken, (req, res) => {
   const { name: newName, color } = req.body;
   const { name: oldName } = req.params;
   
@@ -672,7 +926,7 @@ app.put('/api/tags/:name', (req, res) => {
 });
 
 // Delete tag
-app.delete('/api/tags/:name', (req, res) => {
+app.delete('/api/tags/:name', authenticateToken, (req, res) => {
   const { name } = req.params;
 
   db.run('DELETE FROM tags WHERE name = ?', [name], function(err) {
@@ -686,6 +940,44 @@ app.delete('/api/tags/:name', (req, res) => {
       return;
     }
     res.json({ message: 'Tag deleted successfully' });
+  });
+});
+
+// Get all users (admin only)
+app.get('/api/auth/users', authenticateToken, requireAdmin, (req, res) => {
+  db.all('SELECT id, name, email, admin FROM users', [], (err, rows) => {
+    if (err) {
+      return res.status(500).json({ error: 'Database error' });
+    }
+    res.json(rows);
+  });
+});
+
+// Update user admin status (admin only)
+app.put('/api/auth/users/:id/admin', authenticateToken, requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const { admin } = req.body;
+  if (typeof admin !== 'boolean' && admin !== 0 && admin !== 1) {
+    return res.status(400).json({ error: 'Invalid admin value' });
+  }
+  db.run('UPDATE users SET admin = ? WHERE id = ?', [admin ? 1 : 0, id], function(err) {
+    if (err) {
+      return res.status(500).json({ error: 'Database error' });
+    }
+    if (this.changes === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json({ message: 'User admin status updated', changes: this.changes });
+  });
+});
+
+// Debug endpoint to check user admin status
+app.get('/api/debug/users', (req, res) => {
+  db.all('SELECT id, name, email, admin FROM users', [], (err, rows) => {
+    if (err) {
+      return res.status(500).json({ error: 'Database error' });
+    }
+    res.json(rows);
   });
 });
 

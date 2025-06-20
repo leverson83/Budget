@@ -11,6 +11,8 @@ import {
   useTheme,
   useMediaQuery,
   Divider,
+  Typography,
+  Avatar,
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -21,9 +23,11 @@ import {
   Settings as SettingsIcon,
   AccountBalanceWallet as AccountBalanceWalletIcon,
   Timeline as TimelineIcon,
+  Logout as LogoutIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useSettings } from '../contexts/SettingsContext';
+import { useAuth } from '../contexts/AuthContext';
 
 const Sidebar = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -32,6 +36,7 @@ const Sidebar = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { showSchedulePage, showPlanningPage, showAccountsPage } = useSettings();
+  const { user, logout } = useAuth();
 
   const baseMenuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/' },
@@ -69,6 +74,23 @@ const Sidebar = () => {
       flexDirection: 'column',
       overflowX: 'hidden'
     }}>
+      {/* User Info Section */}
+      <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+          <Avatar sx={{ width: 32, height: 32, mr: 1 }}>
+            {user?.name?.charAt(0) || 'U'}
+          </Avatar>
+          <Box>
+            <Typography variant="subtitle2" noWrap>
+              {user?.name || 'User'}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" noWrap>
+              {user?.email || ''}
+            </Typography>
+          </Box>
+        </Box>
+      </Box>
+
       <List sx={{ flexGrow: 1 }}>
         {menuItems.map((item) => (
           <ListItem key={item.text} disablePadding>
@@ -91,6 +113,12 @@ const Sidebar = () => {
           >
             <ListItemIcon><SettingsIcon /></ListItemIcon>
             <ListItemText primary="Settings" />
+          </ListItemButton>
+        </ListItem>
+        <ListItem disablePadding>
+          <ListItemButton onClick={logout}>
+            <ListItemIcon><LogoutIcon /></ListItemIcon>
+            <ListItemText primary="Logout" />
           </ListItemButton>
         </ListItem>
       </List>

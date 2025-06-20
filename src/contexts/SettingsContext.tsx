@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
+import { apiCall } from '../utils/api';
 
 interface SettingsContextType {
   showPlanningPage: boolean;
@@ -30,7 +31,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
 
   const fetchSettings = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/settings');
+      const response = await apiCall('/settings');
       if (response.ok) {
         const settings = await response.json();
         setShowPlanningPage(settings.showPlanningPage !== false);
@@ -44,7 +45,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
 
   const updateSettings = async (planning: boolean, schedule: boolean, accounts: boolean) => {
     try {
-      const response = await fetch('http://localhost:3001/api/settings', {
+      const response = await apiCall('/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

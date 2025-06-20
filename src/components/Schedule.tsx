@@ -10,6 +10,7 @@ import Grid from '@mui/material/Grid';
 import { eachDayOfInterval, format, isSameMonth, isToday, startOfMonth, endOfMonth, addDays, addWeeks, addMonths, addYears } from 'date-fns';
 import CircularProgress from '@mui/material/CircularProgress';
 import Alert from '@mui/material/Alert';
+import { apiCall } from '../utils/api';
 
 const monthNames = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -131,36 +132,28 @@ const Schedule = () => {
 
   useEffect(() => {
     const fetchData = async () => {
+      setLoading(true);
       try {
-        const [incomesRes, expensesRes, settingsRes] = await Promise.all([
-          fetch(`${API_URL}/income`),
-          fetch(`${API_URL}/expenses`),
-          fetch(`${API_URL}/settings`)
+        const [incomeRes, expensesRes, settingsRes] = await Promise.all([
+          apiCall('/income'),
+          apiCall('/expenses'),
+          apiCall('/settings')
         ]);
 
-        if (!incomesRes.ok || !expensesRes.ok || !settingsRes.ok) {
-          throw new Error('Failed to fetch data');
-        }
+        if (!incomeRes.ok) throw new Error('Failed to fetch income');
+        if (!expensesRes.ok) throw new Error('Failed to fetch expenses');
+        if (!settingsRes.ok) throw new Error('Failed to fetch settings');
 
-        const [incomesData, expensesData, settingsData] = await Promise.all([
-          incomesRes.json(),
-          expensesRes.json(),
-          settingsRes.json()
-        ]);
+        const incomeData = await incomeRes.json();
+        const expensesData = await expensesRes.json();
+        const settingsData = await settingsRes.json();
 
-        setIncomes(incomesData.map((income: any) => ({
-          ...income,
-          nextDue: new Date(income.nextDue)
-        })));
-        setExpenses(expensesData.map((expense: any) => ({
-          ...expense,
-          nextDue: new Date(expense.nextDue)
-        })));
+        setIncomes(incomeData.map((i: any) => ({ ...i, nextDue: new Date(i.nextDue) })));
+        setExpenses(expensesData.map((e: any) => ({ ...e, nextDue: new Date(e.nextDue) })));
         setSettings(settingsData);
-        setError(null);
-      } catch (err) {
+      } catch (error) {
+        console.error('Error fetching data:', error);
         setError('Failed to load data');
-        console.error('Error fetching data:', err);
       } finally {
         setLoading(false);
       }

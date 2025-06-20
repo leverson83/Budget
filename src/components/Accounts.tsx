@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Paper,
@@ -24,6 +24,8 @@ import {
   FormControlLabel,
 } from '@mui/material';
 import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
+import { API_URL } from '../config';
+import { apiCall } from '../utils/api';
 
 interface AccountEntry {
   id: number;
@@ -34,8 +36,6 @@ interface AccountEntry {
   isPrimary: boolean;
   diff: number;
 }
-
-const API_URL = 'http://localhost:3001/api';
 
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('en-US', {
@@ -71,25 +71,25 @@ const Accounts = () => {
   const [snackbar, setSnackbar] = useState({ open: false, message: '' });
 
   useEffect(() => {
+    const fetchAccounts = async () => {
+      setLoading(true);
+      try {
+        const response = await apiCall('/accounts');
+        if (!response.ok) {
+          throw new Error('Failed to fetch accounts');
+        }
+        const data = await response.json();
+        setAccounts(data);
+      } catch (error) {
+        console.error('Error fetching accounts:', error);
+        setError('Failed to load accounts');
+      } finally {
+        setLoading(false);
+      }
+    };
+
     fetchAccounts();
   }, []);
-
-  const fetchAccounts = async () => {
-    try {
-      const response = await fetch(`${API_URL}/accounts`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch accounts');
-      }
-      const data = await response.json();
-      setAccounts(data);
-      setError(null);
-    } catch (err) {
-      setError('Failed to load accounts');
-      console.error('Error fetching accounts:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleOpen = (account?: AccountEntry) => {
     if (account) {
@@ -136,7 +136,7 @@ const Accounts = () => {
       // Calculate diff automatically
       const diff = (formData.currentBalance || 0) - (formData.requiredBalance || 0);
 
-      const response = await fetch(url, {
+      const response = await apiCall(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
@@ -151,7 +151,13 @@ const Accounts = () => {
         throw new Error('Failed to save account');
       }
 
-      await fetchAccounts();
+      // Refresh accounts list
+      const refreshResponse = await apiCall('/accounts');
+      if (refreshResponse.ok) {
+        const refreshedData = await refreshResponse.json();
+        setAccounts(refreshedData);
+      }
+      
       handleClose();
       setSnackbar({
         open: true,
@@ -172,7 +178,7 @@ const Accounts = () => {
     if (!accountToDelete) return;
 
     try {
-      const response = await fetch(`${API_URL}/accounts/${accountToDelete}`, {
+      const response = await apiCall(`/accounts/${accountToDelete}`, {
         method: 'DELETE',
       });
 
@@ -180,17 +186,12 @@ const Accounts = () => {
         throw new Error('Failed to delete account');
       }
 
-      await fetchAccounts();
-      setSnackbar({
-        open: true,
-        message: 'Account deleted successfully',
-      });
-    } catch (err) {
-      setError('Failed to delete account');
-      console.error('Error deleting account:', err);
-    } finally {
+      setAccounts(prevAccounts => prevAccounts.filter(account => account.id !== accountToDelete));
       setDeleteConfirmOpen(false);
       setAccountToDelete(null);
+    } catch (error) {
+      console.error('Error deleting account:', error);
+      setError('Failed to delete account');
     }
   };
 

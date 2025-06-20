@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import type { ReactNode } from 'react';
 import { API_URL, type Frequency } from '../config';
+import { apiCall } from '../utils/api';
 
 interface FrequencyContextType {
   frequency: Frequency;
@@ -12,23 +14,42 @@ export const FrequencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [frequency, setFrequencyState] = useState<Frequency>('monthly');
 
   useEffect(() => {
-    // Load frequency from API on mount
-    fetch(`${API_URL}/settings/frequency`)
-      .then(res => res.json())
-      .then(data => setFrequencyState(data.frequency as Frequency))
-      .catch(err => console.error('Error loading frequency:', err));
+    const fetchFrequency = async () => {
+      try {
+        const response = await apiCall('/settings/frequency');
+        if (response.ok) {
+          const data = await response.json();
+          setFrequencyState(data.frequency as Frequency);
+        }
+      } catch (error) {
+        console.error('Error loading frequency:', error);
+      }
+    };
+
+    fetchFrequency();
   }, []);
 
   const setFrequency = (newFrequency: Frequency) => {
     // Save to API
-    fetch(`${API_URL}/settings/frequency`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ frequency: newFrequency })
-    })
-      .then(res => res.json())
-      .then(data => setFrequencyState(data.frequency as Frequency))
-      .catch(err => console.error('Error saving frequency:', err));
+    updateFrequency(newFrequency);
+  };
+
+  const updateFrequency = async (newFrequency: Frequency) => {
+    try {
+      const response = await apiCall('/settings/frequency', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ frequency: newFrequency }),
+      });
+
+      if (response.ok) {
+        setFrequencyState(newFrequency);
+      }
+    } catch (error) {
+      console.error('Error updating frequency:', error);
+    }
   };
 
   return (

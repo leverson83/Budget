@@ -27,12 +27,21 @@ import {
   CircularProgress,
   Snackbar,
   IconButton,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Autocomplete,
+  Switch,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import { Add as AddIcon } from '@mui/icons-material';
 import { useSettings } from '../contexts/SettingsContext';
+import { useAuth } from '../contexts/AuthContext';
+import { apiCall } from '../utils/api';
 
 const API_URL = 'http://localhost:3001/api';
 
@@ -54,6 +63,13 @@ interface Account {
   requiredBalance: number;
   isPrimary: boolean;
   diff: number;
+}
+
+interface User {
+  id: number;
+  name: string;
+  email: string;
+  admin: boolean;
 }
 
 const predefinedColors = [
@@ -78,6 +94,7 @@ const Settings = () => {
   const [deletingTag, setDeletingTag] = useState<TagWithUsage | null>(null);
   const [editForm, setEditForm] = useState({ name: '', color: '', useCustomColor: false });
   const { showPlanningPage, showSchedulePage, showAccountsPage, updateSettings } = useSettings();
+  const { user } = useAuth();
 
   // Accounts state
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -95,17 +112,36 @@ const Settings = () => {
   });
   const [snackbar, setSnackbar] = useState({ open: false, message: '' });
 
+  // Admin state
+  const [users, setUsers] = useState<User[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [userEditDialogOpen, setUserEditDialogOpen] = useState(false);
+  const [userDeleteDialogOpen, setUserDeleteDialogOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [deletingUser, setDeletingUser] = useState<User | null>(null);
+  const [userForm, setUserForm] = useState<Partial<User>>({
+    name: '',
+    email: '',
+    admin: false,
+  });
+
   useEffect(() => {
     fetchTags();
     fetchAccounts();
-  }, []);
+    console.log('Settings component - Current user:', user);
+    console.log('Settings component - user.admin:', user?.admin);
+    if (user?.admin) {
+      console.log('Settings component - Fetching users because user is admin');
+      fetchUsers();
+    }
+  }, [user?.admin]);
 
   const fetchTags = async () => {
     try {
       setLoading(true);
       const [tagsResponse, expensesResponse] = await Promise.all([
-        fetch(`${API_URL}/tags`),
-        fetch(`${API_URL}/expenses`)
+        apiCall('/tags'),
+        apiCall('/expenses')
       ]);
 
       if (tagsResponse.ok && expensesResponse.ok) {
@@ -141,7 +177,7 @@ const Settings = () => {
   const fetchAccounts = async () => {
     try {
       setAccountsLoading(true);
-      const response = await fetch(`${API_URL}/accounts`);
+      const response = await apiCall('/accounts');
       if (!response.ok) {
         throw new Error('Failed to fetch accounts');
       }
@@ -154,12 +190,32 @@ const Settings = () => {
     }
   };
 
+  const fetchUsers = async () => {
+    try {
+      setUsersLoading(true);
+      const response = await apiCall('/auth/users');
+      if (!response.ok) {
+        throw new Error('Failed to fetch users');
+      }
+      const data = await response.json();
+      setUsers(data);
+    } catch (error) {
+      console.error('Error fetching users:', error);
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
   const handlePlanningPageChange = (checked: boolean) => {
     updateSettings(checked, showSchedulePage, showAccountsPage);
   };
 
   const handleSchedulePageChange = (checked: boolean) => {
     updateSettings(showPlanningPage, checked, showAccountsPage);
+  };
+
+  const handleAccountsPageChange = (checked: boolean) => {
+    updateSettings(showPlanningPage, showSchedulePage, checked);
   };
 
   const handleEditTag = (tag: Tag) => {
@@ -183,7 +239,7 @@ const Settings = () => {
     try {
       const color = editForm.color || null;
       
-      const response = await fetch(`${API_URL}/tags/${editingTag.name}`, {
+      const response = await apiCall(`/tags/${editingTag.name}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: editForm.name, color })
@@ -205,7 +261,7 @@ const Settings = () => {
     if (!deletingTag) return;
 
     try {
-      const response = await fetch(`${API_URL}/tags/${deletingTag.name}`, {
+      const response = await apiCall(`/tags/${deletingTag.name}`, {
         method: 'DELETE'
       });
 
@@ -239,22 +295,23 @@ const Settings = () => {
   };
 
   const handleAccountSubmit = async () => {
-    try {
-      const url = editingAccount
-        ? `${API_URL}/accounts/${editingAccount.id}`
-        : `${API_URL}/accounts`;
-      const method = editingAccount ? 'PUT' : 'POST';
+    if (!accountForm.name || !accountForm.bank) return;
 
+    try {
+      const url = editingAccount 
+        ? `/accounts/${editingAccount.id}`
+        : '/accounts';
+      const method = editingAccount ? 'PUT' : 'POST';
       const diff = (accountForm.currentBalance || 0) - (accountForm.requiredBalance || 0);
 
-      const response = await fetch(url, {
+      const response = await apiCall(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           ...accountForm,
-          diff: diff
+          diff
         }),
       });
 
@@ -265,10 +322,14 @@ const Settings = () => {
       await fetchAccounts();
       setAccountEditDialogOpen(false);
       setEditingAccount(null);
-      setSnackbar({
-        open: true,
-        message: `Account ${editingAccount ? 'updated' : 'added'} successfully`,
+      setAccountForm({
+        name: '',
+        bank: '',
+        currentBalance: 0,
+        requiredBalance: 0,
+        isPrimary: false,
       });
+      setSnackbar({ open: true, message: `Account ${editingAccount ? 'updated' : 'added'} successfully` });
     } catch (error) {
       console.error('Error saving account:', error);
     }
@@ -278,7 +339,7 @@ const Settings = () => {
     if (!deletingAccount) return;
 
     try {
-      const response = await fetch(`${API_URL}/accounts/${deletingAccount.id}`, {
+      const response = await apiCall(`/accounts/${deletingAccount.id}`, {
         method: 'DELETE',
       });
 
@@ -286,16 +347,76 @@ const Settings = () => {
         throw new Error('Failed to delete account');
       }
 
-      await fetchAccounts();
-      setSnackbar({
-        open: true,
-        message: 'Account deleted successfully',
-      });
-    } catch (error) {
-      console.error('Error deleting account:', error);
-    } finally {
+      setSnackbar({ open: true, message: 'Account deleted successfully' });
       setAccountDeleteDialogOpen(false);
       setDeletingAccount(null);
+      fetchAccounts();
+    } catch (error) {
+      console.error('Error deleting account:', error);
+      setSnackbar({ open: true, message: 'Failed to delete account' });
+    }
+  };
+
+  // Admin user management functions
+  const handleUserEdit = (user: User) => {
+    setEditingUser(user);
+    setUserForm({
+      name: user.name,
+      email: user.email,
+      admin: user.admin,
+    });
+    setUserEditDialogOpen(true);
+  };
+
+  const handleUserDelete = (user: User) => {
+    setDeletingUser(user);
+    setUserDeleteDialogOpen(true);
+  };
+
+  const handleUserSubmit = async () => {
+    if (!editingUser || !userForm.name?.trim() || !userForm.email?.trim()) return;
+
+    try {
+      const response = await apiCall(`/auth/users/${editingUser.id}/admin`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ admin: userForm.admin }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update user');
+      }
+
+      setSnackbar({ open: true, message: 'User updated successfully' });
+      setUserEditDialogOpen(false);
+      setEditingUser(null);
+      setUserForm({ name: '', email: '', admin: false });
+      fetchUsers();
+    } catch (error) {
+      console.error('Error updating user:', error);
+      setSnackbar({ open: true, message: 'Failed to update user' });
+    }
+  };
+
+  const handleUserDeleteConfirm = async () => {
+    if (!deletingUser) return;
+
+    try {
+      const response = await apiCall(`/auth/users/${deletingUser.email}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete user');
+      }
+
+      setSnackbar({ open: true, message: 'User deleted successfully' });
+      setUserDeleteDialogOpen(false);
+      setDeletingUser(null);
+      fetchUsers();
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      setSnackbar({ open: true, message: 'Failed to delete user' });
     }
   };
 
@@ -494,7 +615,7 @@ const Settings = () => {
                     control={
                       <Checkbox
                         checked={showAccountsPage}
-                        onChange={(e) => updateSettings(showPlanningPage, showSchedulePage, e.target.checked)}
+                        onChange={(e) => handleAccountsPageChange(e.target.checked)}
                       />
                     }
                     label="Show Accounts page"
@@ -504,6 +625,84 @@ const Settings = () => {
             </AccordionDetails>
           </Accordion>
         </ListItem>
+        
+        {/* Admin Section - Only visible to admin users */}
+        {(() => {
+          console.log('Admin section condition - user?.admin:', user?.admin);
+          return user?.admin && (
+            <ListItem>
+              <Accordion sx={{ width: '100%' }}>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <AdminPanelSettingsIcon color="primary" />
+                    <Typography variant="h6" sx={{ fontWeight: 'bold', textDecoration: 'underline' }}>
+                      Admin
+                    </Typography>
+                  </Box>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography variant="h6">User Management</Typography>
+                      {usersLoading && <CircularProgress size={20} />}
+                    </Box>
+                    
+                    {users.length === 0 ? (
+                      <Typography color="text.secondary">No users found.</Typography>
+                    ) : (
+                      <TableContainer component={Paper}>
+                        <Table>
+                          <TableHead>
+                            <TableRow>
+                              <TableCell>Name</TableCell>
+                              <TableCell>Email</TableCell>
+                              <TableCell>Admin</TableCell>
+                              <TableCell>Actions</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {users.map((user) => (
+                              <TableRow key={user.id}>
+                                <TableCell>{user.name}</TableCell>
+                                <TableCell>{user.email}</TableCell>
+                                <TableCell>
+                                  {user.admin ? (
+                                    <Chip label="Admin" color="primary" size="small" />
+                                  ) : (
+                                    <Chip label="User" color="default" size="small" />
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  <Box sx={{ display: 'flex', gap: 1 }}>
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => handleUserEdit(user)}
+                                      color="primary"
+                                    >
+                                      <EditIcon />
+                                    </IconButton>
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => handleUserDelete(user)}
+                                      color="error"
+                                      disabled={user.email === 'leverson83@gmail.com'} // Prevent deleting yourself
+                                    >
+                                      <DeleteIcon />
+                                    </IconButton>
+                                  </Box>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    )}
+                  </Box>
+                </AccordionDetails>
+              </Accordion>
+            </ListItem>
+          );
+        })()}
       </List>
 
       {/* Edit Tag Dialog */}
@@ -720,6 +919,67 @@ const Settings = () => {
         <DialogActions>
           <Button onClick={() => setAccountDeleteDialogOpen(false)}>Cancel</Button>
           <Button onClick={handleAccountDeleteConfirm} color="error" variant="contained">
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* User Edit Dialog */}
+      <Dialog open={userEditDialogOpen} onClose={() => setUserEditDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Edit User</DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <TextField
+              label="User Name"
+              value={userForm.name}
+              onChange={(e) => setUserForm({ ...userForm, name: e.target.value })}
+              fullWidth
+              required
+            />
+            <TextField
+              label="User Email"
+              value={userForm.email}
+              onChange={(e) => setUserForm({ ...userForm, email: e.target.value })}
+              fullWidth
+              required
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={userForm.admin}
+                  onChange={(e) => setUserForm({ ...userForm, admin: e.target.checked })}
+                />
+              }
+              label="Set as admin"
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setUserEditDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleUserSubmit} variant="contained">
+            Update
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* User Delete Dialog */}
+      <Dialog open={userDeleteDialogOpen} onClose={() => setUserDeleteDialogOpen(false)}>
+        <DialogTitle>Delete User</DialogTitle>
+        <DialogContent>
+          {deletingUser && (
+            <Box sx={{ pt: 2 }}>
+              <Typography gutterBottom>
+                Are you sure you want to delete the user "{deletingUser.name}"?
+              </Typography>
+              <Alert severity="warning" sx={{ mt: 2 }}>
+                This action cannot be undone. All user data will be permanently deleted.
+              </Alert>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setUserDeleteDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleUserDeleteConfirm} color="error" variant="contained">
             Delete
           </Button>
         </DialogActions>

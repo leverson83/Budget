@@ -34,6 +34,7 @@ import { format } from 'date-fns';
 import { API_URL, frequencies, type Frequency } from '../config';
 import { useFrequency } from '../contexts/FrequencyContext';
 import { v4 as uuidv4 } from 'uuid';
+import { apiCall } from '../utils/api';
 
 interface IncomeEntry {
   id: string;
@@ -92,7 +93,7 @@ const Income = () => {
       setLoading(true);
       try {
         // Fetch incomes
-        const incomesResponse = await fetch(`${API_URL}/income`);
+        const incomesResponse = await apiCall('/income');
         if (!incomesResponse.ok) {
           throw new Error('Failed to fetch incomes');
         }
@@ -153,7 +154,7 @@ const Income = () => {
     if (!incomeToDelete) return;
 
     try {
-      const response = await fetch(`${API_URL}/income/${incomeToDelete}`, {
+      const response = await apiCall(`/income/${incomeToDelete}`, {
         method: 'DELETE',
       });
 
@@ -191,7 +192,7 @@ const Income = () => {
 
       if (editingIncome) {
         // Update existing income
-        const response = await fetch(`${API_URL}/income/${editingIncome.id}`, {
+        const response = await apiCall(`/income/${editingIncome.id}`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -221,7 +222,7 @@ const Income = () => {
           ...incomeData,
         };
 
-        const response = await fetch(`${API_URL}/income`, {
+        const response = await apiCall('/income', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -389,43 +390,45 @@ const Income = () => {
     setCalculatedForm((prev) => ({ ...prev, [field]: val }));
   };
 
-  const handleSaveCalculatedIncome = () => {
-    // Convert all amounts to annual, average, then convert to selected frequency
-    const annualAmounts = calculatedForm.amounts
-      .map(a => {
-        const v = parseFloat(a.value);
-        if (isNaN(v)) return 0;
-        switch (a.frequency) {
-          case 'daily': return v * 365;
-          case 'weekly': return v * 52;
-          case 'biweekly': return v * 26;
-          case 'monthly': return v * 12;
-          case 'quarterly': return v * 4;
-          case 'annually': return v;
-          default: return v;
-        }
+  const handleSaveCalculatedIncome = async () => {
+    try {
+      if (!calculatedForm.description || calculatedForm.amounts.length === 0) {
+        setError('Please fill in all fields');
+        return;
+      }
+
+      // Calculate average amount
+      const totalAmount = calculatedForm.amounts.reduce((sum, amount) => sum + parseFloat(amount.value), 0);
+      const averageAmount = totalAmount / calculatedForm.amounts.length;
+
+      const newEntry = {
+        id: Date.now().toString(),
+        description: calculatedForm.description,
+        amount: averageAmount,
+        frequency: calculatedForm.frequency,
+        nextDue: new Date(calculatedForm.startDate).toISOString(),
+        isCalculated: true,
+      };
+
+      const response = await apiCall('/income', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newEntry),
       });
-    const avgAnnual = annualAmounts.reduce((a, b) => a + b, 0) / (annualAmounts.length || 1);
-    let finalAmount = avgAnnual;
-    switch (calculatedForm.frequency) {
-      case 'daily': finalAmount = avgAnnual / 365; break;
-      case 'weekly': finalAmount = avgAnnual / 52; break;
-      case 'biweekly': finalAmount = avgAnnual / 26; break;
-      case 'monthly': finalAmount = avgAnnual / 12; break;
-      case 'quarterly': finalAmount = avgAnnual / 4; break;
-      case 'annually': finalAmount = avgAnnual; break;
-      default: finalAmount = avgAnnual; break;
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create calculated income');
+      }
+
+      setIncomes(prevIncomes => [...prevIncomes, { ...newEntry, nextDue: new Date(newEntry.nextDue) }]);
+      handleCloseCalc();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to save calculated income');
+      console.error('Error saving calculated income:', error);
     }
-    const newEntry = {
-      id: Date.now().toString(),
-      description: calculatedForm.description,
-      amount: finalAmount,
-      frequency: calculatedForm.frequency,
-      nextDue: new Date(calculatedForm.startDate),
-      isCalculated: true,
-    };
-    setIncomes(prev => [...prev, newEntry]);
-    setOpenCalc(false);
   };
 
   if (loading) {

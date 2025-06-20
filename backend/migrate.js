@@ -30,4 +30,28 @@ db.run('ALTER TABLE tags ADD COLUMN color TEXT', (err) => {
     }
     process.exit(0);
   });
-}); 
+});
+
+db.serialize(() => {
+  // Add admin column if it doesn't exist
+  db.get("PRAGMA table_info(users)", (err, row) => {
+    if (err) throw err;
+    db.all("PRAGMA table_info(users)", (err, columns) => {
+      if (err) throw err;
+      const hasAdmin = columns.some(col => col.name === 'admin');
+      if (!hasAdmin) {
+        db.run("ALTER TABLE users ADD COLUMN admin INTEGER DEFAULT 0", (err) => {
+          if (err) throw err;
+          console.log('Added admin column to users table.');
+        });
+      }
+      // Set leverson83@gmail.com as admin
+      db.run("UPDATE users SET admin = 1 WHERE email = ?", ['leverson83@gmail.com'], (err) => {
+        if (err) throw err;
+        console.log('Set leverson83@gmail.com as admin.');
+      });
+    });
+  });
+});
+
+db.close(); 
