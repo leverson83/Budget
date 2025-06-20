@@ -55,7 +55,6 @@ interface Expense {
   applyFuzziness: boolean;
   accountId?: number;
   tags: string[];
-  percentage: number;
   calculatedAmounts?: { value: string; frequency: Frequency }[];
   isCalculated: boolean;
 }
@@ -95,6 +94,11 @@ interface ExpenseResponse {
   calculatedAmounts?: { value: string; frequency: Frequency }[];
 }
 
+interface Tag {
+  name: string;
+  color?: string;
+}
+
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -102,11 +106,17 @@ const formatCurrency = (amount: number) => {
   }).format(amount);
 };
 
+const getFrequencyLabel = (frequency: Frequency): string => {
+  const freq = frequencies.find(f => f.value === frequency);
+  return freq ? freq.label : frequency;
+};
+
 const Expenses = () => {
   const { frequency, setFrequency } = useFrequency();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
+  const [tagColors, setTagColors] = useState<{ [key: string]: string }>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -138,7 +148,18 @@ const Expenses = () => {
   const [sortField, setSortField] = useState<SortField>('amountPerFrequency');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
-  const [calculatedForm, setCalculatedForm] = useState({
+  const [calculatedForm, setCalculatedForm] = useState<{
+    description: string;
+    frequency: Frequency;
+    startDate: string;
+    endDate: string;
+    accountId: string;
+    notes: string;
+    tags: string[];
+    amounts: { value: string; frequency: Frequency }[];
+    isCalculated: boolean;
+    id: string | undefined;
+  }>({
     description: "",
     frequency: frequency,
     startDate: format(new Date(), "yyyy-MM-dd"),
@@ -148,7 +169,7 @@ const Expenses = () => {
     tags: [],
     amounts: [{ value: '', frequency: frequency }],
     isCalculated: true,
-    id: undefined as string | undefined,
+    id: undefined,
   });
 
   const [editingCalcId, setEditingCalcId] = useState<string | null>(null);
@@ -167,9 +188,8 @@ const Expenses = () => {
           const { isCalculated, calculatedAmounts, tags, ...rest } = expense;
           return {
             ...rest,
-            nextDue: new Date(expense.nextDue),
+          nextDue: new Date(expense.nextDue),
             tags: tags || [],
-            percentage: calculatePercentage(expense.amount, expense.frequency),
             isCalculated: Boolean(isCalculated),
             calculatedAmounts: (calculatedAmounts ?? []) as { value: string; frequency: Frequency }[],
           };
@@ -190,7 +210,18 @@ const Expenses = () => {
           throw new Error('Failed to fetch tags');
         }
         const tagsData = await tagsResponse.json();
-        setAvailableTags(tagsData);
+        // Extract tag names from the new format (objects with name and color)
+        const tagNames = tagsData.map((tag: { name: string; color?: string }) => tag.name);
+        setAvailableTags(tagNames);
+        
+        // Store tag colors
+        const colorsMap: { [key: string]: string } = {};
+        tagsData.forEach((tag: { name: string; color?: string }) => {
+          if (tag.color) {
+            colorsMap[tag.name] = tag.color;
+          }
+        });
+        setTagColors(colorsMap);
 
         // Fetch saved frequency
         const frequencyResponse = await fetch(`${API_URL}/settings/frequency`);
@@ -252,9 +283,8 @@ const Expenses = () => {
         const { isCalculated, calculatedAmounts, tags, ...rest } = expense;
         return {
           ...rest,
-          nextDue: new Date(expense.nextDue),
+        nextDue: new Date(expense.nextDue),
           tags: tags || [],
-          percentage: calculatePercentage(expense.amount, expense.frequency),
           isCalculated: Boolean(isCalculated),
           calculatedAmounts: (calculatedAmounts ?? []) as { value: string; frequency: Frequency }[],
         };
@@ -450,8 +480,15 @@ const Expenses = () => {
   };
 
   const calculatePercentage = (amount: number, frequency: Frequency) => {
-    const rawTotal = expenses.reduce((sum, expense) => sum + Number(expense.amount), 0);
-    return rawTotal > 0 ? (Number(amount) / rawTotal) * 100 : 0;
+    // Calculate the monthly amount for this expense
+    const monthlyAmount = calculateFrequencyAmount(amount, frequency, 'monthly');
+    
+    // Calculate the total monthly amount for all expenses
+    const totalMonthlyAmount = expenses.reduce((sum, expense) => {
+      return sum + calculateFrequencyAmount(expense.amount, expense.frequency, 'monthly');
+    }, 0);
+    
+    return totalMonthlyAmount > 0 ? (monthlyAmount / totalMonthlyAmount) * 100 : 0;
   };
 
   const sortedExpenses = [...expenses].sort((a, b) => {
@@ -526,6 +563,12 @@ const Expenses = () => {
   };
 
   const getTagColor = (tag: string) => {
+    // First check if we have a custom color stored for this tag
+    if (tagColors[tag]) {
+      return tagColors[tag];
+    }
+    
+    // Fall back to calculated color if no custom color is set
     const colors = [
       '#1976d2', // Blue
       '#9c27b0', // Purple
@@ -537,6 +580,21 @@ const Expenses = () => {
       '#d32f2f', // Red
       '#5d4037', // Brown
       '#455a64', // Blue Grey
+      '#388e3c', // Dark Green
+      '#fbc02d', // Yellow
+      '#0288d1', // Light Blue
+      '#e64a19', // Deep Orange
+      '#6d4c41', // Coffee
+      '#512da8', // Indigo
+      '#0097a7', // Cyan
+      '#afb42b', // Lime
+      '#f06292', // Light Pink
+      '#8d6e63', // Taupe
+      '#00bcd4', // Cyan Bright
+      '#ffb300', // Amber
+      '#43a047', // Green Bright
+      '#e53935', // Red Bright
+      '#8e24aa', // Purple Bright
     ];
     
     // Use the tag name to consistently assign the same color to the same tag
@@ -564,96 +622,6 @@ const Expenses = () => {
       };
       return <Chip key={tag} {...props} />;
     });
-  };
-
-  const renderTagFilter = () => {
-    return (
-      <FormControl size="small" className="w-48">
-        <InputLabel>Filter by Tag</InputLabel>
-        <Select
-          multiple
-          value={selectedTags}
-          onChange={(e) => setSelectedTags(e.target.value as string[])}
-          input={<OutlinedInput label="Filter by Tag" />}
-          renderValue={(selected) => (
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-              {selected.map((value) => {
-                const props = {
-                  label: value,
-                  size: "small" as const,
-                  sx: {
-                    backgroundColor: getTagColor(value),
-                    color: '#ffffff',
-                    fontWeight: 'medium',
-                    '&:hover': {
-                      backgroundColor: getTagColor(value),
-                      opacity: 0.8
-                    }
-                  }
-                };
-                return <Chip key={value} {...props} />;
-              })}
-            </Box>
-          )}
-          sx={{
-            '& .MuiSelect-select': {
-              backgroundColor: 'transparent'
-            }
-          }}
-          MenuProps={{
-            PaperProps: {
-              sx: {
-                maxHeight: 300,
-                '& .MuiMenuItem-root': {
-                  padding: '8px 16px',
-                  '&:hover': {
-                    backgroundColor: 'rgba(0, 0, 0, 0.04)'
-                  }
-                }
-              }
-            }
-          }}
-        >
-          {availableTags.map((tag) => (
-            <MenuItem 
-              key={tag} 
-              value={tag}
-              sx={{
-                backgroundColor: `${getTagColor(tag)}20`,
-                '&:hover': {
-                  backgroundColor: `${getTagColor(tag)}40`
-                },
-                '&.Mui-selected': {
-                  backgroundColor: `${getTagColor(tag)}40`,
-                  '&:hover': {
-                    backgroundColor: `${getTagColor(tag)}60`
-                  }
-                }
-              }}
-            >
-              <Checkbox 
-                checked={selectedTags.indexOf(tag) > -1}
-                sx={{
-                  color: getTagColor(tag),
-                  '&.Mui-checked': {
-                    color: getTagColor(tag)
-                  }
-                }}
-              />
-              <ListItemText 
-                primary={tag} 
-                sx={{
-                  '& .MuiTypography-root': {
-                    color: getTagColor(tag),
-                    fontWeight: 'medium'
-                  }
-                }}
-              />
-            </MenuItem>
-          ))}
-        </Select>
-      </FormControl>
-    );
   };
 
   // Dropdown handlers
@@ -783,7 +751,7 @@ const Expenses = () => {
     } else {
       // Create
       await axios.post(`${API_URL}/expenses`, payload);
-      setExpenses(prev => [...prev, { ...payload, percentage: calculatePercentage(finalAmount, calculatedForm.frequency), applyFuzziness: false, tags: payload.tags as string[] }]);
+      setExpenses(prev => [...prev, { ...payload, applyFuzziness: false, tags: payload.tags as string[] }]);
     }
     setOpenCalc(false);
   };
@@ -841,11 +809,20 @@ const Expenses = () => {
                     return "All";
                   }
                   return (
-                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-                      {selected.map((value) => (
-                        <Chip key={value} label={value} size="small" />
-                      ))}
-                    </Box>
+                  <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                    {selected.map((value) => (
+                        <Chip 
+                          key={value} 
+                          label={value} 
+                          size="small"
+                          sx={{
+                            backgroundColor: getTagColor(value),
+                            color: '#ffffff',
+                            fontWeight: 'medium'
+                          }}
+                        />
+                    ))}
+                  </Box>
                   );
                 }}
               >
@@ -854,7 +831,18 @@ const Expenses = () => {
                 </MenuItem>
                 {Array.from(new Set(expenses.flatMap(expense => expense.tags))).map((tag) => (
                   <MenuItem key={tag} value={tag}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box
+                        sx={{
+                          width: 16,
+                          height: 16,
+                          borderRadius: '50%',
+                          backgroundColor: getTagColor(tag),
+                          flexShrink: 0
+                        }}
+                      />
                     {tag}
+                    </Box>
                   </MenuItem>
                 ))}
               </Select>
@@ -935,11 +923,9 @@ const Expenses = () => {
                   Account {sortField === 'accountId' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </TableCell>
                 <TableCell>Tags</TableCell>
-                <TableCell onClick={() => handleSort('percentage')} style={{ cursor: 'pointer' }}>
-                  % {sortField === 'percentage' && (sortDirection === 'asc' ? '↑' : '↓')}
-                </TableCell>
-                <TableCell onClick={() => handleSort('amountPerFrequency')} style={{ cursor: 'pointer' }}>
-                  $({frequencies.find(f => f.value === frequency)?.label || frequency}) {sortField === 'amountPerFrequency' && (sortDirection === 'asc' ? '↑' : '↓')}
+                <TableCell>%</TableCell>
+                <TableCell onClick={() => handleSort('amountPerFrequency')} style={{ cursor: 'pointer' }} align="right">
+                  {frequencies.find(f => f.value === frequency)?.label || frequency} {sortField === 'amountPerFrequency' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </TableCell>
               </TableRow>
             </TableHead>
@@ -953,9 +939,9 @@ const Expenses = () => {
                           <CalculateIcon />
                         </IconButton>
                       ) : (
-                        <IconButton onClick={() => handleOpen(expense)} size="small" color="primary">
-                          <EditIcon />
-                        </IconButton>
+                      <IconButton onClick={() => handleOpen(expense)} size="small" color="primary">
+                        <EditIcon />
+                      </IconButton>
                       )}
                       <IconButton onClick={() => handleDeleteClick(expense.id)} size="small" color="error">
                         <DeleteIcon />
@@ -981,7 +967,7 @@ const Expenses = () => {
                     </Tooltip>
                   </TableCell>
                   <TableCell>${expense.amount.toFixed(2)}</TableCell>
-                  <TableCell>{expense.frequency}</TableCell>
+                  <TableCell>{getFrequencyLabel(expense.frequency)}</TableCell>
                   <TableCell>{format(new Date(expense.nextDue), 'MMM d, yyyy')}</TableCell>
                   <TableCell>
                     {expense.accountId ? accounts.find(acc => acc.id === expense.accountId)?.name || 'N/A' : 'N/A'}

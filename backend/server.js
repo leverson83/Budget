@@ -76,7 +76,8 @@ const db = new sqlite3.Database(path.join(__dirname, 'budget.db'), (err) => {
       db.run(`
         CREATE TABLE IF NOT EXISTS tags (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT UNIQUE NOT NULL
+          name TEXT UNIQUE NOT NULL,
+          color TEXT
         )
       `);
 
@@ -235,8 +236,16 @@ app.post('/api/expenses', (req, res) => {
           let hasError = false;
 
           tags.forEach(tag => {
-            // Insert or ignore the tag, then always fetch its ID
-            db.run('INSERT OR IGNORE INTO tags (name) VALUES (?)', [tag], function(err) {
+            // Generate a consistent color for the tag
+            const colors = [
+              '#1976d2', '#9c27b0', '#2e7d32', '#f57c00', '#c2185b', '#00838f', '#7b1fa2', '#d32f2f', '#5d4037', '#455a64',
+              '#388e3c', '#fbc02d', '#0288d1', '#e64a19', '#6d4c41', '#512da8', '#0097a7', '#afb42b', '#f06292', '#8d6e63',
+              '#00bcd4', '#ffb300', '#43a047', '#e53935', '#8e24aa'
+            ];
+            const index = tag.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+            const color = colors[index % colors.length];
+            
+            db.run('INSERT OR IGNORE INTO tags (name, color) VALUES (?, ?)', [tag, color], function(err) {
               if (err) {
                 if (!hasError) {
                   hasError = true;
@@ -349,8 +358,16 @@ app.put('/api/expenses/:id', (req, res) => {
                 if (row) {
                   callback(null, row.id);
                 } else {
-                  // If tag doesn't exist, create it
-                  db.run('INSERT INTO tags (name) VALUES (?)', [tagName], function(err) {
+                  // Generate a consistent color for the tag
+                  const colors = [
+                    '#1976d2', '#9c27b0', '#2e7d32', '#f57c00', '#c2185b', '#00838f', '#7b1fa2', '#d32f2f', '#5d4037', '#455a64',
+                    '#388e3c', '#fbc02d', '#0288d1', '#e64a19', '#6d4c41', '#512da8', '#0097a7', '#afb42b', '#f06292', '#8d6e63',
+                    '#00bcd4', '#ffb300', '#43a047', '#e53935', '#8e24aa'
+                  ];
+                  const index = tagName.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+                  const color = colors[index % colors.length];
+                  
+                  db.run('INSERT INTO tags (name, color) VALUES (?, ?)', [tagName, color], function(err) {
                     if (err) {
                       callback(err);
                       return;
@@ -448,7 +465,10 @@ app.get('/api/settings', (req, res) => {
         yearly: 1
       },
       ignoreWeekends: false,
-      frequency: 'monthly'
+      frequency: 'monthly',
+      showPlanningPage: true,
+      showSchedulePage: true,
+      showAccountsPage: true
     };
 
     // Convert rows to object
@@ -594,32 +614,78 @@ app.delete('/api/accounts/:id', (req, res) => {
 
 // Get all tags
 app.get('/api/tags', (req, res) => {
-  db.all('SELECT name FROM tags ORDER BY name', [], (err, rows) => {
+  db.all('SELECT name, color FROM tags ORDER BY name', [], (err, rows) => {
     if (err) {
       console.error('Error fetching tags:', err);
       res.status(500).json({ error: err.message });
       return;
     }
-    res.json(rows.map(row => row.name));
+    res.json(rows.map(row => ({ name: row.name, color: row.color })));
   });
 });
 
 // Add new tag
 app.post('/api/tags', (req, res) => {
-  const { name } = req.body;
+  const { name, color } = req.body;
   
   if (!name) {
     res.status(400).json({ error: 'Tag name is required' });
     return;
   }
 
-  db.run('INSERT OR IGNORE INTO tags (name) VALUES (?)', [name], function(err) {
+  db.run('INSERT OR IGNORE INTO tags (name, color) VALUES (?, ?)', [name, color || null], function(err) {
     if (err) {
       console.error('Error adding tag:', err);
       res.status(500).json({ error: err.message });
       return;
     }
     res.json({ id: this.lastID });
+  });
+});
+
+// Update tag
+app.put('/api/tags/:name', (req, res) => {
+  const { name: newName, color } = req.body;
+  const { name: oldName } = req.params;
+  
+  if (!newName) {
+    res.status(400).json({ error: 'Tag name is required' });
+    return;
+  }
+
+  db.run(
+    'UPDATE tags SET name = ?, color = ? WHERE name = ?',
+    [newName, color || null, oldName],
+    function(err) {
+      if (err) {
+        console.error('Error updating tag:', err);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      if (this.changes === 0) {
+        res.status(404).json({ error: 'Tag not found' });
+        return;
+      }
+      res.json({ message: 'Tag updated successfully' });
+    }
+  );
+});
+
+// Delete tag
+app.delete('/api/tags/:name', (req, res) => {
+  const { name } = req.params;
+
+  db.run('DELETE FROM tags WHERE name = ?', [name], function(err) {
+    if (err) {
+      console.error('Error deleting tag:', err);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    if (this.changes === 0) {
+      res.status(404).json({ error: 'Tag not found' });
+      return;
+    }
+    res.json({ message: 'Tag deleted successfully' });
   });
 });
 

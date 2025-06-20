@@ -23,15 +23,7 @@ import {
   Timeline as TimelineIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
-
-const menuItems = [
-  { text: 'Dashboard', icon: <DashboardIcon />, path: '/' },
-  { text: 'Income', icon: <AttachMoneyIcon />, path: '/income' },
-  { text: 'Expenses', icon: <AccountBalanceIcon />, path: '/expenses' },
-  { text: 'Accounts', icon: <AccountBalanceWalletIcon />, path: '/accounts' },
-  { text: 'Schedule', icon: <CalendarIcon />, path: '/schedule' },
-  { text: 'Planning', icon: <TimelineIcon />, path: '/planning' },
-];
+import { useSettings } from '../contexts/SettingsContext';
 
 const Sidebar = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -39,6 +31,21 @@ const Sidebar = () => {
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const navigate = useNavigate();
   const location = useLocation();
+  const { showSchedulePage, showPlanningPage, showAccountsPage } = useSettings();
+
+  const baseMenuItems = [
+    { text: 'Dashboard', icon: <DashboardIcon />, path: '/' },
+    { text: 'Income', icon: <AttachMoneyIcon />, path: '/income' },
+    { text: 'Expenses', icon: <AccountBalanceIcon />, path: '/expenses' },
+  ];
+
+  const conditionalMenuItems = [
+    ...(showAccountsPage ? [{ text: 'Accounts', icon: <AccountBalanceWalletIcon />, path: '/accounts' }] : []),
+    ...(showSchedulePage ? [{ text: 'Schedule', icon: <CalendarIcon />, path: '/schedule' }] : []),
+    ...(showPlanningPage ? [{ text: 'Planning', icon: <TimelineIcon />, path: '/planning' }] : []),
+  ];
+
+  const menuItems = [...baseMenuItems, ...conditionalMenuItems];
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);

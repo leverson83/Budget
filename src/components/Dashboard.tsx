@@ -3,10 +3,11 @@ import { Box, Typography, CircularProgress, Alert, Select, MenuItem, FormControl
 import type { SelectChangeEvent } from '@mui/material/Select';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
 import { Pie } from 'react-chartjs-2';
+import ChartDataLabels from 'chartjs-plugin-datalabels';
 import { API_URL, type Frequency, frequencies } from '../config';
 import { useFrequency } from '../contexts/FrequencyContext';
 
-ChartJS.register(ArcElement, Tooltip, Legend);
+ChartJS.register(ArcElement, Tooltip, Legend, ChartDataLabels);
 
 interface IncomeEntry {
   id: string;
@@ -35,6 +36,52 @@ interface Account {
   isPrimary: number;
   diff: number;
 }
+
+interface Tag {
+  name: string;
+  color?: string;
+}
+
+// Predefined colors for fallback
+const predefinedColors = [
+  '#1976d2', // Blue
+  '#9c27b0', // Purple
+  '#2e7d32', // Green
+  '#f57c00', // Orange
+  '#c2185b', // Pink
+  '#00838f', // Teal
+  '#7b1fa2', // Deep Purple
+  '#d32f2f', // Red
+  '#5d4037', // Brown
+  '#455a64', // Blue Grey
+  '#388e3c', // Dark Green
+  '#fbc02d', // Yellow
+  '#0288d1', // Light Blue
+  '#e64a19', // Deep Orange
+  '#6d4c41', // Coffee
+  '#512da8', // Indigo
+  '#0097a7', // Cyan
+  '#afb42b', // Lime
+  '#f06292', // Light Pink
+  '#8d6e63', // Taupe
+  '#00bcd4', // Cyan Bright
+  '#ffb300', // Amber
+  '#43a047', // Green Bright
+  '#e53935', // Red Bright
+  '#8e24aa', // Purple Bright
+];
+
+const getTagColor = (tagName: string, tags: Tag[]) => {
+  // First try to find the tag in our fetched tags
+  const tag = tags.find(t => t.name === tagName);
+  if (tag && tag.color) {
+    return tag.color;
+  }
+  
+  // Fallback to predefined colors based on tag name
+  const index = tagName.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  return predefinedColors[index % predefinedColors.length];
+};
 
 const formatCurrency = (amount: number, noCents: boolean = false): string => {
   return new Intl.NumberFormat("en-US", {
@@ -289,6 +336,7 @@ const Dashboard = () => {
   const [incomes, setIncomes] = useState<IncomeEntry[]>([]);
   const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isAuditing, setIsAuditing] = useState(false);
@@ -300,23 +348,27 @@ const Dashboard = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [incomesRes, expensesRes, accountsRes] = await Promise.all([
+        const [incomesRes, expensesRes, accountsRes, tagsRes] = await Promise.all([
           fetch(`${API_URL}/income`),
           fetch(`${API_URL}/expenses`),
           fetch(`${API_URL}/accounts`),
+          fetch(`${API_URL}/tags`),
         ]);
 
         if (!incomesRes.ok) throw new Error('Failed to fetch incomes');
         if (!expensesRes.ok) throw new Error('Failed to fetch expenses');
         if (!accountsRes.ok) throw new Error('Failed to fetch accounts');
+        if (!tagsRes.ok) throw new Error('Failed to fetch tags');
 
         const incomesData = await incomesRes.json();
         const expensesData = await expensesRes.json();
         const accountsData = await accountsRes.json();
+        const tagsData = await tagsRes.json();
 
         setIncomes(incomesData.map((i: any) => ({ ...i, nextDue: new Date(i.nextDue) })));
         setExpenses(expensesData.map((e: any) => ({ ...e, nextDue: new Date(e.nextDue), tags: e.tags || [], accountId: e.accountId })));
         setAccounts(accountsData);
+        setTags(tagsData);
 
       } catch (err) {
         console.error('Error fetching data:', err);
@@ -522,39 +574,29 @@ const Dashboard = () => {
                     
                     return data;
                   })(),
-                  backgroundColor: [
-                    '#FF6384', // Pink
-                    '#36A2EB', // Blue
-                    '#FFCE56', // Yellow
-                    '#4BC0C0', // Teal
-                    '#9966FF', // Purple
-                    '#FF9F40', // Orange
-                    '#FF6384', // Pink
-                    '#C9CBCF', // Grey
-                    '#4BC0C0', // Teal
-                    '#FF6384', // Pink
-                    '#8AC249', // Green
-                    '#FF6B6B', // Red
-                    '#4ECDC4', // Turquoise
-                    '#45B7D1', // Sky Blue
-                    '#96CEB4', // Mint
-                    '#FFEAA7', // Light Yellow
-                    '#DDA0DD', // Plum
-                    '#98D8C8', // Sea Green
-                    '#F7DC6F', // Golden Yellow
-                    '#BB8FCE', // Lavender
-                    '#85C1E9', // Light Blue
-                    '#F8C471', // Light Orange
-                    '#82E0AA', // Light Green
-                    '#F1948A', // Light Red
-                    '#85C1E9', // Light Blue
-                    '#F7DC6F', // Golden Yellow
-                    '#D7BDE2', // Light Purple
-                    '#A9DFBF', // Light Mint
-                    '#FAD7A0', // Light Peach
-                    '#AED6F1', // Very Light Blue
-                    '#F9E79F'  // Very Light Yellow
-                  ],
+                  backgroundColor: (() => {
+                    const allTags = expenses.flatMap(expense => expense.tags || []);
+                    const uniqueTags = [...new Set(allTags)];
+                    
+                    let colors = [];
+                    if (uniqueTags.length === 0) {
+                      // If no tags, use a neutral color for "No Tags"
+                      colors.push('#C9CBCF');
+                    } else {
+                      // Use custom colors for each tag
+                      colors = uniqueTags.map(tag => getTagColor(tag, tags));
+                    }
+                    
+                    // Add green color for savings
+                    const totalIncome = calculateTotalForFrequency(incomes, frequency);
+                    const totalExpenses = calculateTotalForFrequency(expenses, frequency);
+                    const savings = totalIncome - totalExpenses;
+                    if (savings > 0) {
+                      colors.push('#4CAF50'); // Green for savings
+                    }
+                    
+                    return colors;
+                  })(),
                   borderWidth: 2,
                   borderColor: '#fff'
                 }]
@@ -563,19 +605,39 @@ const Dashboard = () => {
                   responsive: true,
                   maintainAspectRatio: false,
                   plugins: {
-                  legend: {
-                    display: false
-                  },
+                    legend: {
+                      display: false
+                    },
                     tooltip: {
                       callbacks: {
-                      label: function(context) {
-                        const label = context.label || '';
-                        const value = context.parsed;
+                        label: function(context) {
+                          const label = context.label || '';
+                          const value = context.parsed;
+                          const total = context.dataset.data.reduce((sum: number, val: number) => sum + val, 0);
+                          const percentage = ((value / total) * 100).toFixed(1);
+                          return `${label}: ${formatCurrency(value)} (${percentage}%)`;
+                        }
+                      }
+                    },
+                    datalabels: {
+                      display: function(context: any) {
+                        const value = context.dataset.data[context.dataIndex];
                         const total = context.dataset.data.reduce((sum: number, val: number) => sum + val, 0);
-                        const percentage = ((value / total) * 100).toFixed(1);
-                        return `${label}: ${formatCurrency(value)} (${percentage}%)`;
-                      }
-                      }
+                        const percentage = (value / total) * 100;
+                        return percentage > 5;
+                      },
+                      color: '#fff',
+                      font: {
+                        weight: 'bold',
+                        size: 10
+                      },
+                      formatter: function(value: number, context: any) {
+                        const label = context.chart.data.labels[context.dataIndex];
+                        return label;
+                      },
+                      textAlign: 'center',
+                      textStrokeColor: 'rgba(0,0,0,0.5)',
+                      textStrokeWidth: 2
                     }
                   }
                 }} 
@@ -584,29 +646,36 @@ const Dashboard = () => {
         </Box>
       )}
 
-      <Dialog open={showAuditStartDialog} onClose={() => setShowAuditStartDialog(false)}>
+      <Dialog 
+        open={showAuditStartDialog} 
+        onClose={() => setShowAuditStartDialog(false)}
+      >
         <DialogTitle>Start Audit</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Ready to audit transfers?
+            Check each account has the correct transfer amount setup through internet banking
           </DialogContentText>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setShowAuditStartDialog(false)}>Cancel</Button>
-          <Button onClick={handleConfirmStartAudit} autoFocus>
-            OK
+          <Button onClick={handleConfirmStartAudit} color="error" variant="contained">
+            Start Audit
           </Button>
         </DialogActions>
       </Dialog>
-      <Dialog open={showAuditCompleteDialog} onClose={handleCloseAuditCompleteDialog}>
+      
+      <Dialog 
+        open={showAuditCompleteDialog} 
+        onClose={() => setShowAuditCompleteDialog(false)}
+      >
         <DialogTitle>Audit Complete</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Complete
+            All transfers confirmed
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseAuditCompleteDialog} autoFocus>
+          <Button onClick={handleCloseAuditCompleteDialog} color="error" variant="contained">
             OK
           </Button>
         </DialogActions>
