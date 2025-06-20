@@ -425,12 +425,12 @@ const Dashboard = () => {
         )}
 
         {primaryAccount && otherAccounts.length > 0 && (
-          <Box sx={{ 
-            display: 'flex', 
+      <Box sx={{ 
+        display: 'flex', 
             justifyContent: 'center', 
             gap: 4, 
             position: 'relative', 
-            flexWrap: 'wrap',
+        flexWrap: 'wrap',
             '&::before': {
               content: '""',
               position: 'absolute',
@@ -477,7 +477,7 @@ const Dashboard = () => {
         <Box sx={{ mt: 6, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <Typography variant="h5" sx={{ mb: 3, fontWeight: 'bold' }}>
             Expenses by Tag
-          </Typography>
+            </Typography>
           <Box sx={{ width: '100%', maxWidth: 600, height: 400 }}>
             <Pie 
               data={{
@@ -559,15 +559,15 @@ const Dashboard = () => {
                   borderColor: '#fff'
                 }]
               }}
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
                   legend: {
                     display: false
                   },
-                  tooltip: {
-                    callbacks: {
+                    tooltip: {
+                      callbacks: {
                       label: function(context) {
                         const label = context.label || '';
                         const value = context.parsed;
@@ -575,12 +575,12 @@ const Dashboard = () => {
                         const percentage = ((value / total) * 100).toFixed(1);
                         return `${label}: ${formatCurrency(value)} (${percentage}%)`;
                       }
+                      }
                     }
                   }
-                }
-              }}
-            />
-          </Box>
+                }} 
+              />
+            </Box>
         </Box>
       )}
 

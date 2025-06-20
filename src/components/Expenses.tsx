@@ -817,8 +817,9 @@ const Expenses = () => {
                 value={selectedAccount}
                 onChange={(e) => setSelectedAccount(e.target.value)}
                 label="Account"
+                displayEmpty
               >
-                <MenuItem value="">All Accounts</MenuItem>
+                <MenuItem value="">All</MenuItem>
                 {accounts.map((account) => (
                   <MenuItem key={account.id} value={account.id.toString()}>
                     {account.name}
@@ -834,14 +835,23 @@ const Expenses = () => {
                 value={selectedTags}
                 onChange={(e) => setSelectedTags(e.target.value as string[])}
                 label="Tags"
-                renderValue={(selected) => (
-                  <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-                    {selected.map((value) => (
-                      <Chip key={value} label={value} size="small" />
-                    ))}
-                  </Box>
-                )}
+                displayEmpty
+                renderValue={(selected) => {
+                  if (selected.length === 0) {
+                    return "All";
+                  }
+                  return (
+                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                      {selected.map((value) => (
+                        <Chip key={value} label={value} size="small" />
+                      ))}
+                    </Box>
+                  );
+                }}
               >
+                <MenuItem value="" disabled>
+                  All
+                </MenuItem>
                 {Array.from(new Set(expenses.flatMap(expense => expense.tags))).map((tag) => (
                   <MenuItem key={tag} value={tag}>
                     {tag}
