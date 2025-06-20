@@ -28,6 +28,7 @@ interface Expense {
   amount: number;
   frequency: Frequency;
   nextDue: string;
+  accountId: number;
 }
 
 interface Account {
@@ -42,22 +43,26 @@ const Planning = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedFrequency, setSelectedFrequency] = useState<string>('daily');
+  const [selectedAccount, setSelectedAccount] = useState<string>('all');
 
   useEffect(() => {
-    const fetchExpenses = async () => {
+    const fetchData = async () => {
       try {
-        const response = await axios.get(`${API_URL}/expenses`);
-        setExpenses(response.data);
-        setError(null);
+        const [expensesResponse, accountsResponse] = await Promise.all([
+          axios.get('http://localhost:3001/api/expenses'),
+          axios.get('http://localhost:3001/api/accounts')
+        ]);
+        setExpenses(expensesResponse.data);
+        setAccounts(accountsResponse.data);
       } catch (err) {
-        setError('Failed to fetch expenses');
-        console.error('Error fetching expenses:', err);
+        setError('Failed to fetch data');
+        console.error('Error fetching data:', err);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchExpenses();
+    fetchData();
   }, []);
 
   const formatCurrency = (amount: number) => {
@@ -272,6 +277,27 @@ const Planning = () => {
     }
   };
 
+  const getAccountName = (accountId: number) => {
+    const account = accounts.find(acc => acc.id === accountId);
+    return account ? account.name : 'Unknown';
+  };
+
+  const filteredExpenses = expenses.filter(expense => {
+    if (selectedAccount === 'all') return true;
+    return expense.accountId === parseInt(selectedAccount);
+  });
+
+  // Calculate total of Expected column
+  const calculateTotalExpected = () => {
+    return filteredExpenses.reduce((total, expense) => {
+      const { lastScheduled } = calculateScheduledDates(expense.nextDue, expense.frequency);
+      const rate = calculateRate(expense.amount, expense.frequency);
+      const timeSinceLastDue = calculateTimeSinceLastDue(lastScheduled);
+      const accruedAmount = parseFloat(calculateAccruedAmount(rate, timeSinceLastDue));
+      return total + accruedAmount;
+    }, 0);
+  };
+
   if (loading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
@@ -283,23 +309,40 @@ const Planning = () => {
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4">
+        <Typography variant="h4" component="h1">
           Planning
         </Typography>
-        <FormControl sx={{ minWidth: 200 }}>
-          <InputLabel>Frequency</InputLabel>
-          <Select
-            value={selectedFrequency}
-            label="Frequency"
-            onChange={(e) => setSelectedFrequency(e.target.value)}
-          >
-            <MenuItem value="daily">Daily</MenuItem>
-            <MenuItem value="weekly">Weekly</MenuItem>
-            <MenuItem value="fortnightly">Fortnightly</MenuItem>
-            <MenuItem value="monthly">Monthly</MenuItem>
-            <MenuItem value="annually">Annually</MenuItem>
-          </Select>
-        </FormControl>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <FormControl size="small" variant="outlined" sx={{ minWidth: 200 }}>
+            <InputLabel>Frequency</InputLabel>
+            <Select
+              value={selectedFrequency}
+              label="Frequency"
+              onChange={(e) => setSelectedFrequency(e.target.value)}
+            >
+              <MenuItem value="daily">Daily</MenuItem>
+              <MenuItem value="weekly">Weekly</MenuItem>
+              <MenuItem value="fortnightly">Fortnightly</MenuItem>
+              <MenuItem value="monthly">Monthly</MenuItem>
+              <MenuItem value="annually">Annually</MenuItem>
+            </Select>
+          </FormControl>
+          <FormControl size="small" variant="outlined" sx={{ minWidth: 200 }}>
+            <InputLabel>Account</InputLabel>
+            <Select
+              value={selectedAccount}
+              label="Account"
+              onChange={(e) => setSelectedAccount(e.target.value)}
+            >
+              <MenuItem value="all">All</MenuItem>
+              {accounts.map((account) => (
+                <MenuItem key={account.id} value={account.id.toString()}>
+                  {account.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Box>
       </Box>
 
       {error && (
@@ -318,14 +361,15 @@ const Planning = () => {
               <TableCell>Initial Due Date</TableCell>
               <TableCell>Last Scheduled</TableCell>
               <TableCell>Next Scheduled</TableCell>
+              <TableCell>Account</TableCell>
               <TableCell>{getRateColumnTitle()}</TableCell>
-              <TableCell>Since Last Due</TableCell>
+              <TableCell>Since Last</TableCell>
               <TableCell>Accrued Amount</TableCell>
-              <TableCell>Actions</TableCell>
+              <TableCell>Expected</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {expenses.map((expense) => {
+            {filteredExpenses.map((expense) => {
               const { lastScheduled, nextScheduled, lastDue } = calculateScheduledDates(
                 expense.nextDue,
                 expense.frequency
@@ -342,6 +386,7 @@ const Planning = () => {
                   <TableCell>{format(new Date(expense.nextDue), "MMM d, yyyy")}</TableCell>
                   <TableCell>{format(new Date(lastScheduled), "MMM d, yyyy")}</TableCell>
                   <TableCell>{format(new Date(nextScheduled), "MMM d, yyyy")}</TableCell>
+                  <TableCell>{getAccountName(expense.accountId)}</TableCell>
                   <TableCell>${rate.toFixed(2)}</TableCell>
                   <TableCell>{timeSinceLastDue}</TableCell>
                   <TableCell>{timeSinceLastDue} {selectedFrequency}</TableCell>
@@ -349,6 +394,14 @@ const Planning = () => {
                 </TableRow>
               );
             })}
+            <TableRow>
+              <TableCell colSpan={10} sx={{ fontWeight: 'bold', textAlign: 'center' }}>
+                Total
+              </TableCell>
+              <TableCell style={{ fontWeight: 'bold', textAlign: 'right' }}>
+                ${calculateTotalExpected().toFixed(2)}
+              </TableCell>
+            </TableRow>
           </TableBody>
         </Table>
       </TableContainer>
