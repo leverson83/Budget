@@ -32,10 +32,11 @@ import {
   OutlinedInput,
   ListItemText,
   Checkbox,
-  Grid
+  Grid,
+  Menu
 } from "@mui/material";
 import type { SelectChangeEvent } from '@mui/material/Select';
-import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Info as InfoIcon } from "@mui/icons-material";
+import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Info as InfoIcon, Calculate as CalculateIcon } from "@mui/icons-material";
 import { format, addDays, addMonths, addWeeks, addYears, isAfter, isBefore } from "date-fns";
 import { API_URL, frequencies, type Frequency } from "../config";
 import axios from "axios";
@@ -55,6 +56,8 @@ interface Expense {
   accountId?: number;
   tags: string[];
   percentage: number;
+  calculatedAmounts?: { value: string; frequency: Frequency }[];
+  isCalculated: boolean;
 }
 
 interface Account {
@@ -88,6 +91,8 @@ interface ExpenseResponse {
   applyFuzziness: boolean;
   accountId?: number;
   tags?: string[];
+  isCalculated?: boolean;
+  calculatedAmounts?: { value: string; frequency: Frequency }[];
 }
 
 const formatCurrency = (amount: number) => {
@@ -125,11 +130,28 @@ const Expenses = () => {
   const [errorMessage, setErrorMessage] = useState("");
   const [selectedAccount, setSelectedAccount] = useState<string>("");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [openCalc, setOpenCalc] = useState(false);
 
   type SortField = keyof Expense | 'amountPerFrequency';
 
   const [sortField, setSortField] = useState<SortField>('amountPerFrequency');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+
+  const [calculatedForm, setCalculatedForm] = useState({
+    description: "",
+    frequency: frequency,
+    startDate: format(new Date(), "yyyy-MM-dd"),
+    endDate: "",
+    accountId: '',
+    notes: "",
+    tags: [],
+    amounts: [{ value: '', frequency: frequency }],
+    isCalculated: true,
+    id: undefined as string | undefined,
+  });
+
+  const [editingCalcId, setEditingCalcId] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -140,13 +162,18 @@ const Expenses = () => {
         if (!expensesResponse.ok) {
           throw new Error('Failed to fetch expenses');
         }
-        const expensesData = await expensesResponse.json() as ExpenseResponse[];
-        const processedExpenses: Expense[] = expensesData.map((expense) => ({
-          ...expense,
-          nextDue: new Date(expense.nextDue),
-          tags: expense.tags || [],
-          percentage: calculatePercentage(expense.amount, expense.frequency)
-        }));
+        const data = await expensesResponse.json() as ExpenseResponse[];
+        const processedExpenses: Expense[] = data.map((expense) => {
+          const { isCalculated, calculatedAmounts, tags, ...rest } = expense;
+          return {
+            ...rest,
+            nextDue: new Date(expense.nextDue),
+            tags: tags || [],
+            percentage: calculatePercentage(expense.amount, expense.frequency),
+            isCalculated: Boolean(isCalculated),
+            calculatedAmounts: (calculatedAmounts ?? []) as { value: string; frequency: Frequency }[],
+          };
+        });
         setExpenses(processedExpenses);
 
         // Fetch accounts
@@ -221,12 +248,17 @@ const Expenses = () => {
         throw new Error("Failed to fetch expenses");
       }
       const data = await response.json() as ExpenseResponse[];
-      const processedExpenses: Expense[] = data.map((expense) => ({
-        ...expense,
-        nextDue: new Date(expense.nextDue),
-        tags: expense.tags || [],
-        percentage: calculatePercentage(expense.amount, expense.frequency)
-      }));
+      const processedExpenses: Expense[] = data.map((expense) => {
+        const { isCalculated, calculatedAmounts, tags, ...rest } = expense;
+        return {
+          ...rest,
+          nextDue: new Date(expense.nextDue),
+          tags: tags || [],
+          percentage: calculatePercentage(expense.amount, expense.frequency),
+          isCalculated: Boolean(isCalculated),
+          calculatedAmounts: (calculatedAmounts ?? []) as { value: string; frequency: Frequency }[],
+        };
+      });
       setExpenses(processedExpenses);
       setError(null);
     } catch (err) {
@@ -624,6 +656,138 @@ const Expenses = () => {
     );
   };
 
+  // Dropdown handlers
+  const handleAddExpenseClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    setAnchorEl(event.currentTarget);
+  };
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+  };
+  const handleSimpleExpense = () => {
+    setAnchorEl(null);
+    setFormData({
+      description: "",
+      amount: "",
+      frequency: frequency,
+      startDate: format(new Date(), "yyyy-MM-dd"),
+      endDate: "",
+      accountId: '',
+      notes: "",
+      tags: [],
+    });
+    setOpen(true);
+  };
+  const handleCalculatedExpense = () => {
+    setAnchorEl(null);
+    setOpenCalc(true);
+  };
+
+  const handleAddAmountRow = () => {
+    setCalculatedForm((prev) => ({
+      ...prev,
+      amounts: [...prev.amounts, { value: '', frequency: frequency }],
+    }));
+  };
+  const handleRemoveAmountRow = (idx: number) => {
+    setCalculatedForm((prev) => ({
+      ...prev,
+      amounts: prev.amounts.filter((_, i) => i !== idx),
+    }));
+  };
+  const handleAmountChange = (idx: number, field: 'value' | 'frequency', val: string) => {
+    setCalculatedForm((prev) => ({
+      ...prev,
+      amounts: prev.amounts.map((row, i) => i === idx ? { ...row, [field]: val } : row),
+    }));
+  };
+  const handleCalcFieldChange = (field: string, val: any) => {
+    setCalculatedForm((prev) => ({ ...prev, [field]: val }));
+  };
+  const handleOpenCalc = (expense?: Expense) => {
+    if (expense) {
+      // Editing existing calculated expense
+      setEditingCalcId(expense.id);
+      setCalculatedForm({
+        description: expense.description,
+        frequency: expense.frequency,
+        startDate: format(new Date(expense.nextDue), "yyyy-MM-dd"),
+        endDate: '',
+        accountId: typeof expense.accountId === 'number' ? String(expense.accountId) : '',
+        notes: expense.notes,
+        tags: expense.tags,
+        amounts: expense.calculatedAmounts || [{ value: '', frequency: frequency }],
+        isCalculated: true,
+        id: expense.id,
+      });
+    } else {
+      setEditingCalcId(null);
+      setCalculatedForm({
+        description: "",
+        frequency: frequency,
+        startDate: format(new Date(), "yyyy-MM-dd"),
+        endDate: "",
+        accountId: '',
+        notes: "",
+        tags: [],
+        amounts: [{ value: '', frequency: frequency }],
+        isCalculated: true,
+        id: undefined,
+      });
+    }
+    setOpenCalc(true);
+  };
+  const handleSaveCalculatedExpense = async () => {
+    // Convert all amounts to annual, average, then convert to selected frequency
+    const annualAmounts = calculatedForm.amounts
+      .map(a => {
+        const v = parseFloat(a.value);
+        if (isNaN(v)) return 0;
+        switch (a.frequency) {
+          case 'daily': return v * 365;
+          case 'weekly': return v * 52;
+          case 'biweekly': return v * 26;
+          case 'monthly': return v * 12;
+          case 'quarterly': return v * 4;
+          case 'annually': return v;
+          default: return v;
+        }
+      });
+    const avgAnnual = annualAmounts.reduce((a, b) => a + b, 0) / (annualAmounts.length || 1);
+    let finalAmount = avgAnnual;
+    switch (calculatedForm.frequency) {
+      case 'daily': finalAmount = avgAnnual / 365; break;
+      case 'weekly': finalAmount = avgAnnual / 52; break;
+      case 'biweekly': finalAmount = avgAnnual / 26; break;
+      case 'monthly': finalAmount = avgAnnual / 12; break;
+      case 'quarterly': finalAmount = avgAnnual / 4; break;
+      case 'annually': finalAmount = avgAnnual; break;
+      default: finalAmount = avgAnnual; break;
+    }
+    const payload = {
+      id: calculatedForm.id || uuidv4(),
+      description: calculatedForm.description,
+      amount: finalAmount,
+      frequency: calculatedForm.frequency,
+      nextDue: new Date(calculatedForm.startDate),
+      notes: calculatedForm.notes,
+      accountId: calculatedForm.accountId === '' ? undefined : Number(calculatedForm.accountId),
+      tags: calculatedForm.tags as string[],
+      calculatedAmounts: calculatedForm.amounts,
+      isCalculated: true,
+      applyFuzziness: false,
+    };
+    if (editingCalcId) {
+      // Update
+      await axios.put(`${API_URL}/expenses/${editingCalcId}`, payload);
+      setExpenses(prev => prev.map(e => e.id === editingCalcId ? { ...e, ...payload, applyFuzziness: false, tags: payload.tags as string[] } : e));
+    } else {
+      // Create
+      await axios.post(`${API_URL}/expenses`, payload);
+      setExpenses(prev => [...prev, { ...payload, percentage: calculatePercentage(finalAmount, calculatedForm.frequency), applyFuzziness: false, tags: payload.tags as string[] }]);
+    }
+    setOpenCalc(false);
+  };
+
   if (loading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
@@ -706,22 +870,22 @@ const Expenses = () => {
               variant="contained"
               color="primary"
               startIcon={<AddIcon />}
-              onClick={() => {
-                setFormData({
-                  description: "",
-                  amount: "",
-                  frequency: frequency,
-                  startDate: format(new Date(), "yyyy-MM-dd"),
-                  endDate: "",
-                  accountId: '',
-                  notes: "",
-                  tags: [],
-                });
-                setOpen(true);
-              }}
+              onClick={handleAddExpenseClick}
+              aria-controls={Boolean(anchorEl) ? 'add-expense-menu' : undefined}
+              aria-expanded={Boolean(anchorEl) ? 'true' : undefined}
             >
               Add Expense
             </Button>
+            <Menu
+              id="add-expense-menu"
+              anchorEl={anchorEl}
+              open={Boolean(anchorEl)}
+              onClose={handleMenuClose}
+              anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+            >
+              <MenuItem onClick={handleSimpleExpense}>Simple Expense</MenuItem>
+              <MenuItem onClick={handleCalculatedExpense}>Calculated Expense</MenuItem>
+            </Menu>
           </Box>
         </Stack>
       </Box>
@@ -774,9 +938,15 @@ const Expenses = () => {
                 <TableRow key={expense.id}>
                   <TableCell>
                     <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                      <IconButton onClick={() => handleOpen(expense)} size="small" color="primary">
-                        <EditIcon />
-                      </IconButton>
+                      {expense.isCalculated ? (
+                        <IconButton onClick={() => handleOpenCalc(expense)} size="small" color="primary">
+                          <CalculateIcon />
+                        </IconButton>
+                      ) : (
+                        <IconButton onClick={() => handleOpen(expense)} size="small" color="primary">
+                          <EditIcon />
+                        </IconButton>
+                      )}
                       <IconButton onClick={() => handleDeleteClick(expense.id)} size="small" color="error">
                         <DeleteIcon />
                       </IconButton>
@@ -966,6 +1136,139 @@ const Expenses = () => {
           <Button onClick={handleDeleteConfirm} color="error" variant="contained">
             Delete
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={openCalc} onClose={() => setOpenCalc(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>{editingCalcId ? 'Edit Calculated Expense' : 'Add Calculated Expense'}</DialogTitle>
+        <DialogContent>
+          <Box display="flex" flexDirection="column" gap={2} mt={1}>
+            <TextField
+              label="Description"
+              value={calculatedForm.description}
+              onChange={e => handleCalcFieldChange('description', e.target.value)}
+              required
+              fullWidth
+            />
+            <FormControl fullWidth variant="outlined">
+              <InputLabel id="dialog-account-label-calc" shrink>Account</InputLabel>
+              <Select
+                labelId="dialog-account-label-calc"
+                value={calculatedForm.accountId === '' ? '' : String(calculatedForm.accountId)}
+                onChange={e => handleCalcFieldChange('accountId', e.target.value === '' ? '' : Number(e.target.value))}
+                label="Account"
+              >
+                <MenuItem value="">
+                  <em>None</em>
+                </MenuItem>
+                {accounts.map((account) => (
+                  <MenuItem key={account.id} value={String(account.id)}>
+                    {account.name} ({account.bank})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField
+              label="Next Due Date"
+              type="date"
+              value={calculatedForm.startDate}
+              onChange={e => handleCalcFieldChange('startDate', e.target.value)}
+              required
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+            />
+            <Typography variant="subtitle1" sx={{ mt: 2 }}>Amounts to Average</Typography>
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+              {calculatedForm.amounts.map((row, idx) => (
+                <Box key={idx} display="flex" gap={1} alignItems="flex-end" mb={1}>
+                  <TextField
+                    label="Amount"
+                    type="number"
+                    value={row.value}
+                    onChange={e => handleAmountChange(idx, 'value', e.target.value)}
+                    required
+                    sx={{ flex: 1 }}
+                    size="small"
+                    inputProps={{ step: "0.01", min: "0" }}
+                  />
+                  <FormControl sx={{ minWidth: 100 }} size="small">
+                    <InputLabel shrink>Frequency</InputLabel>
+                    <Select
+                      value={row.frequency}
+                      onChange={e => handleAmountChange(idx, 'frequency', e.target.value)}
+                      label="Frequency"
+                    >
+                      {frequencies.map((option) => (
+                        <MenuItem key={option.value} value={option.value}>
+                          {option.label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <IconButton 
+                    onClick={() => handleRemoveAmountRow(idx)} 
+                    disabled={calculatedForm.amounts.length === 1}
+                    size="small"
+                    color="error"
+                  >
+                    <DeleteIcon />
+                  </IconButton>
+                </Box>
+              ))}
+              <Button 
+                onClick={handleAddAmountRow} 
+                size="small"
+                startIcon={<AddIcon />}
+                sx={{ 
+                  height: 40, 
+                  border: '2px dashed',
+                  borderColor: 'grey.300',
+                  color: 'grey.600',
+                  '&:hover': {
+                    borderColor: 'primary.main',
+                    color: 'primary.main'
+                  }
+                }}
+              >
+                Add Amount
+              </Button>
+            </Box>
+            <FormControl fullWidth variant="outlined">
+              <InputLabel id="dialog-frequency-label-calc" shrink>Overall Frequency</InputLabel>
+              <Select
+                labelId="dialog-frequency-label-calc"
+                value={calculatedForm.frequency}
+                onChange={e => handleCalcFieldChange('frequency', e.target.value)}
+                label="Overall Frequency"
+              >
+                {frequencies.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField
+              label="Notes"
+              value={calculatedForm.notes}
+              onChange={e => handleCalcFieldChange('notes', e.target.value)}
+              fullWidth
+              multiline
+              minRows={2}
+            />
+            <Autocomplete
+              multiple
+              freeSolo
+              options={availableTags}
+              value={calculatedForm.tags as string[]}
+              onChange={(_, newValue) => handleCalcFieldChange('tags', newValue as string[])}
+              renderInput={(params) => <TextField {...params} label="Tags" />}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenCalc(false)}>Cancel</Button>
+          <Button onClick={handleSaveCalculatedExpense} variant="contained">Save</Button>
         </DialogActions>
       </Dialog>
     </Box>
