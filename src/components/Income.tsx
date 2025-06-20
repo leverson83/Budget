@@ -26,12 +26,14 @@ import {
   FormControl,
   InputLabel,
   Select,
+  Menu,
 } from '@mui/material';
 import type { SelectChangeEvent } from '@mui/material/Select';
-import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Info as InfoIcon } from '@mui/icons-material';
+import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Info as InfoIcon, Calculate as CalculateIcon } from '@mui/icons-material';
 import { format } from 'date-fns';
 import { API_URL, frequencies, type Frequency } from '../config';
 import { useFrequency } from '../contexts/FrequencyContext';
+import { v4 as uuidv4 } from 'uuid';
 
 interface IncomeEntry {
   id: string;
@@ -39,6 +41,7 @@ interface IncomeEntry {
   amount: number;
   frequency: Frequency;
   nextDue: Date;
+  isCalculated?: boolean;
 }
 
 const formatCurrency = (amount: number) => {
@@ -49,16 +52,12 @@ const formatCurrency = (amount: number) => {
 };
 
 const formatDate = (date: string | Date) => {
-  try {
-    const dateObj = typeof date === 'string' ? new Date(date) : date;
-    if (isNaN(dateObj.getTime())) {
-      return 'Invalid Date';
-    }
-    return format(dateObj, 'MMM d, yyyy');
-  } catch (error) {
-    console.error('Error formatting date:', error);
-    return 'Invalid Date';
-  }
+  return format(new Date(date), 'MMM d, yyyy');
+};
+
+const getFrequencyLabel = (frequency: string) => {
+  const freq = frequencies.find(f => f.value === frequency);
+  return freq ? freq.label : frequency;
 };
 
 const Income = () => {
@@ -72,11 +71,20 @@ const Income = () => {
   const [editingIncome, setEditingIncome] = useState<IncomeEntry | null>(null);
   const [sortField, setSortField] = useState<keyof IncomeEntry | "percentage" | "amountPerFrequency">("description");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [newIncome, setNewIncome] = useState({
     description: '',
     amount: '',
     frequency: 'monthly' as Frequency,
     nextDue: new Date().toISOString().split('T')[0],
+  });
+  const [openCalc, setOpenCalc] = useState(false);
+  const [editingCalcId, setEditingCalcId] = useState<string | null>(null);
+  const [calculatedForm, setCalculatedForm] = useState({
+    description: '',
+    frequency: frequency,
+    startDate: new Date().toISOString().split('T')[0],
+    amounts: [{ value: '', frequency: frequency }],
   });
 
   useEffect(() => {
@@ -248,8 +256,13 @@ const Income = () => {
   const totalIncome = incomes.reduce((sum, entry) => sum + Number(entry.amount), 0);
 
   const sortedIncome = [...incomes].sort((a, b) => {
-    let aValue: string | number | Date = a[sortField as keyof IncomeEntry] ?? "";
-    let bValue: string | number | Date = b[sortField as keyof IncomeEntry] ?? "";
+    let aValue: string | number | boolean | Date = a[sortField as keyof IncomeEntry] ?? "";
+    let bValue: string | number | boolean | Date = b[sortField as keyof IncomeEntry] ?? "";
+
+    // Skip sorting for boolean fields
+    if (typeof aValue === "boolean" || typeof bValue === "boolean") {
+      return 0;
+    }
 
     if (sortField === "percentage") {
       aValue = (Number(a.amount) / totalIncome) * 100;
@@ -316,6 +329,105 @@ const Income = () => {
     setFrequency(event.target.value as Frequency);
   };
 
+  const handleAddIncomeClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+  };
+
+  const handleSimpleIncome = () => {
+    setAnchorEl(null);
+    setNewIncome({
+      description: "",
+      amount: "",
+      frequency: "monthly",
+      nextDue: format(new Date(), "yyyy-MM-dd"),
+    });
+    setOpen(true);
+  };
+
+  const handleCalculatedIncome = () => {
+    setAnchorEl(null);
+    handleOpenCalc();
+  };
+
+  const handleOpenCalc = () => {
+    setEditingCalcId(null);
+    setCalculatedForm({
+      description: '',
+      frequency: frequency,
+      startDate: new Date().toISOString().split('T')[0],
+      amounts: [{ value: '', frequency: frequency }],
+    });
+    setOpenCalc(true);
+  };
+
+  const handleAddAmountRow = () => {
+    setCalculatedForm((prev) => ({
+      ...prev,
+      amounts: [...prev.amounts, { value: '', frequency: prev.frequency }],
+    }));
+  };
+
+  const handleRemoveAmountRow = (idx: number) => {
+    setCalculatedForm((prev) => ({
+      ...prev,
+      amounts: prev.amounts.filter((_, i) => i !== idx),
+    }));
+  };
+
+  const handleAmountChange = (idx: number, field: 'value' | 'frequency', val: string) => {
+    setCalculatedForm((prev) => ({
+      ...prev,
+      amounts: prev.amounts.map((row, i) => i === idx ? { ...row, [field]: val } : row),
+    }));
+  };
+
+  const handleCalcFieldChange = (field: string, val: any) => {
+    setCalculatedForm((prev) => ({ ...prev, [field]: val }));
+  };
+
+  const handleSaveCalculatedIncome = () => {
+    // Convert all amounts to annual, average, then convert to selected frequency
+    const annualAmounts = calculatedForm.amounts
+      .map(a => {
+        const v = parseFloat(a.value);
+        if (isNaN(v)) return 0;
+        switch (a.frequency) {
+          case 'daily': return v * 365;
+          case 'weekly': return v * 52;
+          case 'biweekly': return v * 26;
+          case 'monthly': return v * 12;
+          case 'quarterly': return v * 4;
+          case 'annually': return v;
+          default: return v;
+        }
+      });
+    const avgAnnual = annualAmounts.reduce((a, b) => a + b, 0) / (annualAmounts.length || 1);
+    let finalAmount = avgAnnual;
+    switch (calculatedForm.frequency) {
+      case 'daily': finalAmount = avgAnnual / 365; break;
+      case 'weekly': finalAmount = avgAnnual / 52; break;
+      case 'biweekly': finalAmount = avgAnnual / 26; break;
+      case 'monthly': finalAmount = avgAnnual / 12; break;
+      case 'quarterly': finalAmount = avgAnnual / 4; break;
+      case 'annually': finalAmount = avgAnnual; break;
+      default: finalAmount = avgAnnual; break;
+    }
+    const newEntry = {
+      id: Date.now().toString(),
+      description: calculatedForm.description,
+      amount: finalAmount,
+      frequency: calculatedForm.frequency,
+      nextDue: new Date(calculatedForm.startDate),
+      isCalculated: true,
+    };
+    setIncomes(prev => [...prev, newEntry]);
+    setOpenCalc(false);
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
@@ -359,18 +471,22 @@ const Income = () => {
             variant="contained"
             color="primary"
             startIcon={<AddIcon />}
-            onClick={() => {
-              setNewIncome({
-                description: "",
-                amount: "",
-                frequency: "monthly",
-                nextDue: format(new Date(), "yyyy-MM-dd"),
-              });
-              setOpen(true);
-            }}
+            onClick={handleAddIncomeClick}
+            aria-controls={Boolean(anchorEl) ? 'add-income-menu' : undefined}
+            aria-expanded={Boolean(anchorEl) ? 'true' : undefined}
           >
             Add Income
           </Button>
+          <Menu
+            id="add-income-menu"
+            anchorEl={anchorEl}
+            open={Boolean(anchorEl)}
+            onClose={handleMenuClose}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+          >
+            <MenuItem onClick={handleSimpleIncome}>Simple Income</MenuItem>
+            <MenuItem onClick={handleCalculatedIncome}>Calculated Income</MenuItem>
+          </Menu>
         </Box>
       </Box>
 
@@ -421,7 +537,7 @@ const Income = () => {
                 onClick={() => handleSort('amountPerFrequency')}
                 sx={{ cursor: 'pointer' }}
               >
-                $({frequency === 'biweekly' ? 'Fortnightly' : frequency})
+                {getFrequencyLabel(frequency)}
                 {sortField === 'amountPerFrequency' && (sortDirection === 'asc' ? '↑' : '↓')}
               </TableCell>
             </TableRow>
@@ -431,13 +547,15 @@ const Income = () => {
               <TableRow key={income.id}>
                 <TableCell>
                   <Box sx={{ display: 'flex', gap: 1 }}>
-                    <IconButton
-                      size="small"
-                      onClick={() => handleOpen(income)}
-                      color="primary"
-                    >
-                      <EditIcon />
-                    </IconButton>
+                    <Tooltip title={income.isCalculated ? "Calculated Income" : "Edit Income"}>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleOpen(income)}
+                        color="primary"
+                      >
+                        {income.isCalculated ? <CalculateIcon /> : <EditIcon />}
+                      </IconButton>
+                    </Tooltip>
                     <IconButton
                       size="small"
                       onClick={() => handleDeleteClick(income.id)}
@@ -566,6 +684,112 @@ const Income = () => {
           {error}
         </Alert>
       </Snackbar>
+
+      {/* Calculated Income Dialog */}
+      <Dialog open={openCalc} onClose={() => setOpenCalc(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>{editingCalcId ? 'Edit Calculated Income' : 'Add Calculated Income'}</DialogTitle>
+        <DialogContent>
+          <Box display="flex" flexDirection="column" gap={2} mt={1}>
+            <TextField
+              label="Description"
+              value={calculatedForm.description}
+              onChange={e => handleCalcFieldChange('description', e.target.value)}
+              required
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+            />
+            <TextField
+              label="Initial Due Date"
+              type="date"
+              value={calculatedForm.startDate}
+              onChange={e => handleCalcFieldChange('startDate', e.target.value)}
+              required
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+            />
+            <Box>
+              <Typography variant="subtitle1" sx={{ mb: 1 }}>Amounts to Average</Typography>
+              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+                {calculatedForm.amounts.map((row, idx) => (
+                  <Box key={idx} display="flex" gap={1} alignItems="flex-end" mb={1}>
+                    <TextField
+                      label="Amount"
+                      type="number"
+                      value={row.value}
+                      onChange={e => handleAmountChange(idx, 'value', e.target.value)}
+                      required
+                      sx={{ flex: 1 }}
+                      size="small"
+                      inputProps={{ step: "0.01", min: "0" }}
+                      InputLabelProps={{ shrink: true }}
+                    />
+                    <TextField
+                      select
+                      label="Frequency"
+                      value={row.frequency}
+                      onChange={e => handleAmountChange(idx, 'frequency', e.target.value)}
+                      size="small"
+                      sx={{ minWidth: 100 }}
+                      InputLabelProps={{ shrink: true }}
+                    >
+                      {frequencies.map((option) => (
+                        <MenuItem key={option.value} value={option.value}>
+                          {option.label}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                    <IconButton 
+                      onClick={() => handleRemoveAmountRow(idx)} 
+                      disabled={calculatedForm.amounts.length === 1}
+                      size="small"
+                      color="error"
+                    >
+                      <DeleteIcon />
+                    </IconButton>
+                  </Box>
+                ))}
+                <Button 
+                  onClick={handleAddAmountRow} 
+                  size="small"
+                  startIcon={<AddIcon />}
+                  sx={{ 
+                    height: 40, 
+                    border: '2px dashed',
+                    borderColor: 'grey.300',
+                    color: 'grey.600',
+                    '&:hover': {
+                      borderColor: 'primary.main',
+                      color: 'primary.main'
+                    }
+                  }}
+                >
+                  Add Amount
+                </Button>
+              </Box>
+            </Box>
+            <TextField
+              select
+              label="Overall Frequency"
+              value={calculatedForm.frequency}
+              onChange={e => handleCalcFieldChange('frequency', e.target.value)}
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+            >
+              {frequencies.map((option) => (
+                <MenuItem key={option.value} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenCalc(false)}>Cancel</Button>
+          <Button onClick={handleSaveCalculatedIncome} variant="contained" color="primary">
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

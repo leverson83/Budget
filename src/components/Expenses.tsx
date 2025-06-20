@@ -917,7 +917,7 @@ const Expenses = () => {
                   Frequency {sortField === 'frequency' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </TableCell>
                 <TableCell onClick={() => handleSort('nextDue')} style={{ cursor: 'pointer' }}>
-                  Next Due {sortField === 'nextDue' && (sortDirection === 'asc' ? '↑' : '↓')}
+                  Initially due {sortField === 'nextDue' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </TableCell>
                 <TableCell onClick={() => handleSort('accountId')} style={{ cursor: 'pointer' }}>
                   Account {sortField === 'accountId' && (sortDirection === 'asc' ? '↑' : '↓')}
@@ -1010,6 +1010,7 @@ const Expenses = () => {
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 required
                 fullWidth
+                InputLabelProps={{ shrink: true }}
               />
               <TextField
                 label="Amount"
@@ -1019,6 +1020,7 @@ const Expenses = () => {
                 required
                 fullWidth
                 inputProps={{ step: "0.01", min: "0" }}
+                InputLabelProps={{ shrink: true }}
               />
               <FormControl fullWidth variant="outlined">
                 <InputLabel id="dialog-frequency-label" shrink>Frequency</InputLabel>
@@ -1035,26 +1037,25 @@ const Expenses = () => {
                   ))}
                 </Select>
               </FormControl>
-              <FormControl fullWidth variant="outlined">
-                <InputLabel id="dialog-account-label" shrink>Account</InputLabel>
-                <Select
-                  labelId="dialog-account-label"
-                  value={formData.accountId === '' ? '' : String(formData.accountId)}
-                  onChange={(e) => setFormData({ ...formData, accountId: e.target.value === '' ? '' : Number(e.target.value) })}
-                  label="Account"
-                >
-                  <MenuItem value="">
-                    <em>None</em>
-                  </MenuItem>
-                  {accounts.map((account) => (
-                    <MenuItem key={account.id} value={String(account.id)}>
-                      {account.name} ({account.bank})
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
               <TextField
-                label="Next Due Date"
+                select
+                label="Account"
+                value={formData.accountId === '' ? '' : String(formData.accountId)}
+                onChange={(e) => setFormData({ ...formData, accountId: e.target.value === '' ? '' : Number(e.target.value) })}
+                fullWidth
+                InputLabelProps={{ shrink: true }}
+              >
+                <MenuItem value="">
+                  <em>None</em>
+                </MenuItem>
+                {accounts.map((account) => (
+                  <MenuItem key={account.id} value={String(account.id)}>
+                    {account.name} ({account.bank})
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                label="Initial Due Date"
                 type="date"
                 value={formData.startDate}
                 onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
@@ -1093,6 +1094,7 @@ const Expenses = () => {
                       {...params}
                       label="Tags"
                       placeholder="Add tags"
+                      InputLabelProps={{ shrink: true }}
                     />
                   )}
                 />
@@ -1104,6 +1106,7 @@ const Expenses = () => {
                 multiline
                 rows={2}
                 fullWidth
+                InputLabelProps={{ shrink: true }}
               />
             </Box>
           </DialogContent>
@@ -1145,27 +1148,27 @@ const Expenses = () => {
               onChange={e => handleCalcFieldChange('description', e.target.value)}
               required
               fullWidth
+              InputLabelProps={{ shrink: true }}
             />
-            <FormControl fullWidth variant="outlined">
-              <InputLabel id="dialog-account-label-calc" shrink>Account</InputLabel>
-              <Select
-                labelId="dialog-account-label-calc"
-                value={calculatedForm.accountId === '' ? '' : String(calculatedForm.accountId)}
-                onChange={e => handleCalcFieldChange('accountId', e.target.value === '' ? '' : Number(e.target.value))}
-                label="Account"
-              >
-                <MenuItem value="">
-                  <em>None</em>
-                </MenuItem>
-                {accounts.map((account) => (
-                  <MenuItem key={account.id} value={String(account.id)}>
-                    {account.name} ({account.bank})
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
             <TextField
-              label="Next Due Date"
+              select
+              label="Account"
+              value={calculatedForm.accountId === '' ? '' : String(calculatedForm.accountId)}
+              onChange={e => handleCalcFieldChange('accountId', e.target.value === '' ? '' : Number(e.target.value))}
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+            >
+              <MenuItem value="">
+                <em>None</em>
+              </MenuItem>
+              {accounts.map((account) => (
+                <MenuItem key={account.id} value={String(account.id)}>
+                  {account.name} ({account.bank})
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              label="Initial Due Date"
               type="date"
               value={calculatedForm.startDate}
               onChange={e => handleCalcFieldChange('startDate', e.target.value)}
@@ -1186,6 +1189,7 @@ const Expenses = () => {
                     sx={{ flex: 1 }}
                     size="small"
                     inputProps={{ step: "0.01", min: "0" }}
+                    InputLabelProps={{ shrink: true }}
                   />
                   <FormControl sx={{ minWidth: 100 }} size="small">
                     <InputLabel shrink>Frequency</InputLabel>
@@ -1251,6 +1255,7 @@ const Expenses = () => {
               fullWidth
               multiline
               minRows={2}
+              InputLabelProps={{ shrink: true }}
             />
             <Autocomplete
               multiple
@@ -1258,7 +1263,7 @@ const Expenses = () => {
               options={availableTags}
               value={calculatedForm.tags as string[]}
               onChange={(_, newValue) => handleCalcFieldChange('tags', newValue as string[])}
-              renderInput={(params) => <TextField {...params} label="Tags" />}
+              renderInput={(params) => <TextField {...params} label="Tags" InputLabelProps={{ shrink: true }} />}
             />
           </Box>
         </DialogContent>
