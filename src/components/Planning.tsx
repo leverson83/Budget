@@ -16,6 +16,7 @@ import {
   Select,
   MenuItem,
   IconButton,
+  Button,
 } from '@mui/material';
 import { format, subDays, addDays, subMonths, addMonths, subWeeks, addWeeks, differenceInDays } from 'date-fns';
 import { API_URL, frequencies, type Frequency } from '../config';
@@ -34,7 +35,11 @@ interface Expense {
 interface Account {
   id: number;
   name: string;
-  balance: number;
+  bank: string;
+  currentBalance: number;
+  requiredBalance: number;
+  isPrimary: number;
+  diff: number;
 }
 
 const Planning = () => {
@@ -298,6 +303,42 @@ const Planning = () => {
     }, 0);
   };
 
+  const updateAccountRequiredBalance = async () => {
+    if (selectedAccount === 'all') {
+      setError('Please select a specific account to update its required balance');
+      return;
+    }
+
+    try {
+      const account = accounts.find(acc => acc.id === parseInt(selectedAccount));
+      if (!account) {
+        setError('Account not found');
+        return;
+      }
+
+      const totalExpected = calculateTotalExpected();
+      
+      const response = await axios.put(`http://localhost:3001/api/accounts/${selectedAccount}`, {
+        name: account.name,
+        bank: account.bank,
+        currentBalance: account.currentBalance,
+        requiredBalance: totalExpected,
+        isPrimary: account.isPrimary,
+        diff: account.diff
+      });
+
+      if (response.status === 200) {
+        // Refresh accounts data to show updated values
+        const accountsResponse = await axios.get('http://localhost:3001/api/accounts');
+        setAccounts(accountsResponse.data);
+        setError(null);
+      }
+    } catch (err) {
+      setError('Failed to update account required balance');
+      console.error('Error updating account:', err);
+    }
+  };
+
   if (loading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
@@ -314,6 +355,21 @@ const Planning = () => {
         </Typography>
         <Box sx={{ display: 'flex', gap: 2 }}>
           <FormControl size="small" variant="outlined" sx={{ minWidth: 200 }}>
+            <InputLabel>Account</InputLabel>
+            <Select
+              value={selectedAccount}
+              label="Account"
+              onChange={(e) => setSelectedAccount(e.target.value)}
+            >
+              <MenuItem value="all">All Accounts</MenuItem>
+              {accounts.map((account) => (
+                <MenuItem key={account.id} value={account.id.toString()}>
+                  {account.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl size="small" variant="outlined" sx={{ minWidth: 200 }}>
             <InputLabel>Frequency</InputLabel>
             <Select
               value={selectedFrequency}
@@ -327,21 +383,13 @@ const Planning = () => {
               <MenuItem value="annually">Annually</MenuItem>
             </Select>
           </FormControl>
-          <FormControl size="small" variant="outlined" sx={{ minWidth: 200 }}>
-            <InputLabel>Account</InputLabel>
-            <Select
-              value={selectedAccount}
-              label="Account"
-              onChange={(e) => setSelectedAccount(e.target.value)}
-            >
-              <MenuItem value="all">All</MenuItem>
-              {accounts.map((account) => (
-                <MenuItem key={account.id} value={account.id.toString()}>
-                  {account.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          <Button
+            variant="contained"
+            onClick={updateAccountRequiredBalance}
+            disabled={selectedAccount === 'all'}
+          >
+            Update Required Balance
+          </Button>
         </Box>
       </Box>
 
@@ -395,7 +443,7 @@ const Planning = () => {
               );
             })}
             <TableRow>
-              <TableCell colSpan={10} sx={{ fontWeight: 'bold', textAlign: 'center' }}>
+              <TableCell colSpan={10} sx={{ fontWeight: 'bold', textAlign: 'right' }}>
                 Total
               </TableCell>
               <TableCell style={{ fontWeight: 'bold', textAlign: 'right' }}>

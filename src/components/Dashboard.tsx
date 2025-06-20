@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Typography, Paper, CircularProgress, Alert, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
+import { Box, Typography, Paper, CircularProgress, Alert, Select, MenuItem, FormControl, InputLabel, Chip } from '@mui/material';
 import type { SelectChangeEvent } from '@mui/material/Select';
-import { Grid } from '@mui/material';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -47,6 +46,16 @@ interface ExpenseEntry {
   tags: string[];
 }
 
+interface Account {
+  id: number;
+  name: string;
+  bank: string;
+  currentBalance: number;
+  requiredBalance: number;
+  isPrimary: number;
+  diff: number;
+}
+
 const formatCurrency = (amount: number, noCents: boolean = false): string => {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -56,10 +65,107 @@ const formatCurrency = (amount: number, noCents: boolean = false): string => {
   }).format(amount).replace('A$', '$');
 };
 
+const AccountTile = ({ account, isIncomeSource, isExpenseSource, netIncome }: { 
+  account: Account | { name: string, currentBalance: number }, 
+  isIncomeSource?: boolean, 
+  isExpenseSource?: boolean,
+  netIncome?: number
+}) => {
+  const isPrimary = 'isPrimary' in account && !!account.isPrimary;
+  
+  const diff = isPrimary && typeof netIncome === 'number' 
+    ? netIncome 
+    : ('requiredBalance' in account ? ((account.currentBalance || 0) - (account.requiredBalance || 0)) : 0);
+  
+  const diffColor = diff >= 0 ? 'success.main' : 'error.main';
+  const diffText = `${diff >= 0 ? '+' : '-'}${formatCurrency(Math.abs(diff), true)}`;
+
+  let borderColor = 'grey.500';
+  let labelColor = 'grey.500';
+
+  if (isIncomeSource) {
+    borderColor = 'success.main';
+    labelColor = 'success.main';
+  } else if (isExpenseSource) {
+    borderColor = 'error.main';
+    labelColor = 'error.main';
+  } else if (isPrimary) {
+    borderColor = 'primary.main';
+    labelColor = 'primary.main';
+  }
+
+  return (
+    <Box
+      sx={{
+        p: 2,
+        width: 240,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 1,
+        position: 'relative',
+        border: '2px solid',
+        borderColor: borderColor,
+        borderRadius: 1,
+      }}
+    >
+      <Typography 
+        variant="caption" 
+        sx={{ 
+          position: 'absolute',
+          top: '-8px',
+          left: '12px',
+          bgcolor: 'background.default',
+          px: 1,
+          fontWeight: 'bold',
+          color: labelColor,
+        }}
+      >
+        {account.name}
+      </Typography>
+      
+      {isPrimary && (
+        <Chip
+          label="Primary"
+          color="primary"
+          size="small"
+          sx={{ position: 'absolute', top: 8, right: 8, fontWeight: 'bold' }}
+        />
+      )}
+      
+      <Box mt={1}>
+        {(isIncomeSource || isExpenseSource) ? (
+            <Typography variant="h5" sx={{ textAlign: 'center', fontWeight: 'bold' }}>
+                {formatCurrency(account.currentBalance, true)}
+            </Typography>
+        ) : (
+            <>
+                <Typography variant="body1">
+                    Balance: <strong>{formatCurrency(account.currentBalance, true)}</strong>
+                </Typography>
+                {'requiredBalance' in account && !isPrimary && (
+                    <Typography variant="body2" color="text.secondary">
+                        Required: {formatCurrency(account.requiredBalance, true)}
+                    </Typography>
+                )}
+            </>
+        )}
+      </Box>
+      {'requiredBalance' in account && (
+        <Box>
+          <Typography variant="body1" sx={{ color: diffColor, fontWeight: 'bold' }}>
+            {`${isPrimary ? 'Change' : 'Difference'}: ${diffText}`}
+          </Typography>
+        </Box>
+      )}
+    </Box>
+  );
+};
+
 const Dashboard = () => {
   const { frequency, setFrequency } = useFrequency();
   const [incomes, setIncomes] = useState<IncomeEntry[]>([]);
   const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -85,6 +191,13 @@ const Dashboard = () => {
           nextDue: new Date(expense.nextDue),
           tags: expense.tags || []
         })));
+
+        // Fetch accounts
+        const accountsResponse = await fetch(`${API_URL}/accounts`);
+        if (!accountsResponse.ok) throw new Error('Failed to fetch accounts');
+        const accountsData = await accountsResponse.json();
+        setAccounts(accountsData);
+
       } catch (error) {
         console.error('Error fetching data:', error);
         setError('Failed to load data. Please try again.');
@@ -163,6 +276,22 @@ const Dashboard = () => {
   const totalIncome = calculateTotal(incomes, frequency);
   const totalExpenses = calculateTotal(expenses, frequency);
   const netIncome = totalIncome - totalExpenses;
+  
+  const incomeAccount = { name: "Income", currentBalance: totalIncome };
+  const expenseAccount = { name: "Expenses", currentBalance: totalExpenses };
+
+  // Sort accounts: primary first, then by name
+  const sortedAccounts = [...accounts].sort((a, b) => {
+    if (a.isPrimary && !b.isPrimary) return -1;
+    if (!a.isPrimary && b.isPrimary) return 1;
+    if (a.name && b.name) {
+      return a.name.localeCompare(b.name);
+    }
+    return 0;
+  });
+
+  const primaryAccount = sortedAccounts.find(a => a.isPrimary);
+  const otherAccounts = sortedAccounts.filter(a => !a.isPrimary);
 
   // Expenses by Category Chart
   const expensesByCategory = {
@@ -243,82 +372,120 @@ const Dashboard = () => {
         </FormControl>
       </Box>
 
-      {/* Summary Cards Row */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} md={4}>
-          <Paper 
-            elevation={2}
-            sx={{ 
-              p: 3, 
-              textAlign: 'center',
-              height: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center',
-              bgcolor: 'success.light',
-              color: 'success.contrastText'
-            }}
-          >
-            <Typography variant="h6" gutterBottom>
-              Total Income
-            </Typography>
-            <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
-              {formatCurrency(totalIncome, true)}
-            </Typography>
-          </Paper>
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <Paper 
-            elevation={2}
-            sx={{ 
-              p: 3, 
-              textAlign: 'center',
-              height: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center',
-              bgcolor: 'error.light',
-              color: 'error.contrastText'
-            }}
-          >
-            <Typography variant="h6" gutterBottom>
-              Total Expenses
-            </Typography>
-            <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
-              {formatCurrency(totalExpenses, true)}
-            </Typography>
-          </Paper>
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <Paper 
-            elevation={2}
-            sx={{ 
-              p: 3, 
-              textAlign: 'center',
-              height: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center',
-              bgcolor: netIncome >= 0 ? 'success.light' : 'error.light',
-              color: netIncome >= 0 ? 'success.contrastText' : 'error.contrastText'
-            }}
-          >
-            <Typography variant="h6" gutterBottom>
-              Net Income
-            </Typography>
-            <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
-              {netIncome >= 0 ? '+' : ''}{formatCurrency(netIncome, true)}
-            </Typography>
-          </Paper>
-        </Grid>
-      </Grid>
+      {/* Account Tree */}
+      <Box sx={{ my: 5 }}>
+        <Box sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '60px',
+        }}>
+           {/* Income Tile */}
+            <Box sx={{ position: 'relative' }}>
+                <AccountTile account={incomeAccount} isIncomeSource={true} />
+            </Box>
+
+            {/* Primary Account with connector from Income */}
+            {primaryAccount && (
+              <Box sx={{
+                  position: 'relative',
+                  '&::before': {
+                      content: '""',
+                      position: 'absolute',
+                      bottom: '100%',
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                      width: '2px',
+                      height: '60px',
+                      bgcolor: 'white',
+                  },
+              }}>
+                  <AccountTile account={primaryAccount} netIncome={netIncome} />
+              </Box>
+            )}
+
+            {/* Expense Tile with connector from Primary */}
+            {primaryAccount && (
+              <Box sx={{
+                  position: 'relative',
+                  '&::before': {
+                      content: '""',
+                      position: 'absolute',
+                      bottom: '100%',
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                      width: '2px',
+                      height: '60px',
+                      bgcolor: 'white',
+                  },
+              }}>
+                  <AccountTile account={expenseAccount} isExpenseSource={true} />
+              </Box>
+            )}
+
+            {/* Other Accounts with horizontal connectors */}
+            {primaryAccount && otherAccounts.length > 0 && (
+                <Box sx={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    gap: 4,
+                    position: 'relative',
+                    // Vertical line from expense tile
+                    '&::before': {
+                        content: '""',
+                        position: 'absolute',
+                        bottom: '100%',
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        width: '2px',
+                        height: '60px',
+                        bgcolor: 'white',
+                    },
+                    // Continuous horizontal line across all accounts
+                    '&::after': {
+                        content: '""',
+                        position: 'absolute',
+                        top: 0,
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        width: '1000px', // Fixed wide width to ensure coverage
+                        height: '2px',
+                        bgcolor: 'white',
+                    },
+                }}>
+                    {otherAccounts.map((account, index) => (
+                        <Box key={`account-${account.id}-${index}`} sx={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            position: 'relative',
+                            pt: '60px', // Space for connectors
+                            // Vertical line part for each account
+                            '&::before': {
+                                content: '""',
+                                position: 'absolute',
+                                top: 0,
+                                left: '50%',
+                                transform: 'translateX(-50%)',
+                                width: '2px',
+                                height: '60px',
+                                bgcolor: 'white',
+                            }
+                        }}>
+                           <AccountTile account={account} />
+                        </Box>
+                    ))}
+                </Box>
+            )}
+        </Box>
+      </Box>
 
       {/* Charts Grid */}
-      <Grid container spacing={3}>
-        <Grid item xs={12} md={6}>
-          <Paper 
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+        <Box sx={{ flex: '1 1 500px', minWidth: 300 }}>
+          <Paper
             elevation={2}
-            sx={{ 
+            sx={{
               p: 3,
               height: '100%',
               display: 'flex',
@@ -354,8 +521,11 @@ const Dashboard = () => {
               />
             </Box>
           </Paper>
-        </Grid>
-      </Grid>
+        </Box>
+        <Box sx={{ flex: '1 1 500px', minWidth: 300 }}>
+            {/* You can add another chart here if you want */}
+        </Box>
+      </Box>
     </Box>
   );
 };

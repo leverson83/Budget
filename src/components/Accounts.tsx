@@ -44,6 +44,15 @@ const formatCurrency = (amount: number) => {
   }).format(amount);
 };
 
+const formatDiff = (currentBalance: number, requiredBalance: number) => {
+  const diff = currentBalance - requiredBalance;
+  const formattedDiff = formatCurrency(Math.abs(diff));
+  const sign = diff >= 0 ? '+' : '-';
+  const color = diff >= 0 ? 'success.main' : 'error.main';
+  
+  return { text: `${sign}${formattedDiff}`, color };
+};
+
 const Accounts = () => {
   const [accounts, setAccounts] = useState<AccountEntry[]>([]);
   const [open, setOpen] = useState(false);
@@ -54,7 +63,6 @@ const Accounts = () => {
     currentBalance: 0,
     requiredBalance: 0,
     isPrimary: false,
-    diff: 0
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -92,7 +100,6 @@ const Accounts = () => {
         currentBalance: account.currentBalance,
         requiredBalance: account.requiredBalance,
         isPrimary: account.isPrimary,
-        diff: account.diff,
       });
     } else {
       setEditingAccount(null);
@@ -102,7 +109,6 @@ const Accounts = () => {
         currentBalance: 0,
         requiredBalance: 0,
         isPrimary: false,
-        diff: 0
       });
     }
     setOpen(true);
@@ -117,7 +123,6 @@ const Accounts = () => {
       currentBalance: 0,
       requiredBalance: 0,
       isPrimary: false,
-      diff: 0
     });
   };
 
@@ -128,12 +133,18 @@ const Accounts = () => {
         : `${API_URL}/accounts`;
       const method = editingAccount ? 'PUT' : 'POST';
 
+      // Calculate diff automatically
+      const diff = (formData.currentBalance || 0) - (formData.requiredBalance || 0);
+
       const response = await fetch(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          diff: diff
+        }),
       });
 
       if (!response.ok) {
@@ -269,7 +280,15 @@ const Accounts = () => {
                 <TableCell>{account.bank}</TableCell>
                 <TableCell align="right">${(account.currentBalance ?? 0).toFixed(2)}</TableCell>
                 <TableCell align="right">${(account.requiredBalance ?? 0).toFixed(2)}</TableCell>
-                <TableCell align="right">${(account.diff ?? 0).toFixed(2)}</TableCell>
+                <TableCell 
+                  align="right"
+                  sx={{ 
+                    color: formatDiff(account.currentBalance, account.requiredBalance).color,
+                    fontWeight: 'bold'
+                  }}
+                >
+                  {formatDiff(account.currentBalance, account.requiredBalance).text}
+                </TableCell>
                 <TableCell>{account.isPrimary ? 'Yes' : 'No'}</TableCell>
               </TableRow>
             ))}
@@ -311,14 +330,6 @@ const Accounts = () => {
               onChange={(e) => setFormData({ ...formData, requiredBalance: parseFloat(e.target.value) })}
               fullWidth
               required
-              inputProps={{ step: "0.01" }}
-            />
-            <TextField
-              label="Diff"
-              type="number"
-              value={formData.diff}
-              onChange={(e) => setFormData({ ...formData, diff: parseFloat(e.target.value) })}
-              fullWidth
               inputProps={{ step: "0.01" }}
             />
             <FormControlLabel

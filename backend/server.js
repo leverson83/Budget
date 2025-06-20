@@ -90,33 +90,6 @@ const db = new sqlite3.Database(path.join(__dirname, 'budget.db'), (err) => {
           FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
         )
       `);
-
-      // Insert test data for tags
-      db.run(`
-        INSERT OR IGNORE INTO tags (name)
-        VALUES 
-          ('Groceries'),
-          ('Utilities'),
-          ('Entertainment'),
-          ('Transportation')
-      `);
-
-      // Get the first account ID for the expense
-      db.get('SELECT id FROM accounts LIMIT 1', [], (err, account) => {
-        if (err) {
-          console.error('Error getting account ID:', err);
-          return;
-        }
-
-        if (account) {
-          db.run(`
-            INSERT OR IGNORE INTO expenses (id, description, amount, frequency, nextDue, accountId, notes)
-            VALUES 
-              ('1', 'Grocery Shopping', 200.00, 'weekly', '2024-03-20', ?, 'Weekly grocery shopping'),
-              ('2', 'Electric Bill', 150.00, 'monthly', '2024-03-25', ?, 'Monthly electric bill payment')
-          `, [account.id, account.id]);
-        }
-      });
     });
   }
 });
