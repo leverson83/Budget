@@ -1,3 +1,4 @@
+// Use proxy in development, direct URL in production (Docker)
 export const API_URL = '/api';
 
 export type Frequency = 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'annually';

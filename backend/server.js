@@ -329,6 +329,8 @@ function createSampleDataForUser(userId) {
 
 // Function to create default version for existing user
 function createDefaultVersionForUser(userId) {
+  console.log(`Creating default version for user ID: ${userId}`);
+  
   db.serialize(() => {
     db.run(
       'INSERT INTO budget_versions (user_id, name, description, is_active) VALUES (?, ?, ?, ?)',
@@ -336,6 +338,11 @@ function createDefaultVersionForUser(userId) {
       function(err) {
         if (err) {
           console.error('Error creating default version:', err);
+          console.error('Error details:', {
+            code: err.code,
+            errno: err.errno,
+            message: err.message
+          });
           return;
         }
         
@@ -372,6 +379,8 @@ function createDefaultVersionForUser(userId) {
           stmt.run(userId, versionId, key, value);
         });
         stmt.finalize();
+        
+        console.log(`Default settings created for user ${userId}`);
       }
     );
   });
@@ -2130,10 +2139,6 @@ app.get('*', (req, res) => {
 });
 
 // Add error handling middleware before app.listen
-app.use((req, res, next) => {
-  res.status(404).json({ error: 'Not found' });
-});
-
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({ error: 'Internal server error' });
