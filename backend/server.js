@@ -215,7 +215,7 @@ function createSampleDataForUser(userId) {
   db.serialize(() => {
     // Create default version
     db.run(
-      'INSERT INTO budget_versions (user_id, name, description, is_active) VALUES (?, ?, ?, 1)',
+      'INSERT INTO budget_versions (user_id, name, description, is_active) VALUES (?, ?, ?, ?)',
       [userId, 'Default', 'Default budget version with sample data', 1],
       function(err) {
         if (err) {
@@ -331,7 +331,7 @@ function createSampleDataForUser(userId) {
 function createDefaultVersionForUser(userId) {
   db.serialize(() => {
     db.run(
-      'INSERT INTO budget_versions (user_id, name, description, is_active) VALUES (?, ?, ?, 1)',
+      'INSERT INTO budget_versions (user_id, name, description, is_active) VALUES (?, ?, ?, ?)',
       [userId, 'Default', 'Default budget version', 1],
       function(err) {
         if (err) {
@@ -493,7 +493,7 @@ app.post('/api/auth/login', (req, res) => {
         // User has no default version, create one
         console.log(`Creating default version for user ${user.email}...`);
         db.run(
-          'INSERT INTO budget_versions (user_id, name, description, is_active) VALUES (?, ?, ?, 1)',
+          'INSERT INTO budget_versions (user_id, name, description, is_active) VALUES (?, ?, ?, ?)',
           [user.id, 'Default', 'Default budget version', 1],
           function(err) {
             if (err) {
@@ -627,7 +627,7 @@ app.post('/api/auth/set-password', (req, res) => {
               // User has no default version, create one
               console.log(`Creating default version for user ${user.email}...`);
               db.run(
-                'INSERT INTO budget_versions (user_id, name, description, is_active) VALUES (?, ?, ?, 1)',
+                'INSERT INTO budget_versions (user_id, name, description, is_active) VALUES (?, ?, ?, ?)',
                 [user.id, 'Default', 'Default budget version', 1],
                 function(err) {
                   if (err) {
@@ -766,7 +766,7 @@ app.post('/api/auth/register', (req, res) => {
                   // User has no default version, create one
                   console.log(`Creating default version for user ${existingUser.email}...`);
                   db.run(
-                    'INSERT INTO budget_versions (user_id, name, description, is_active) VALUES (?, ?, ?, 1)',
+                    'INSERT INTO budget_versions (user_id, name, description, is_active) VALUES (?, ?, ?, ?)',
                     [existingUser.id, 'Default', 'Default budget version', 1],
                     function(err) {
                       if (err) {
@@ -842,7 +842,7 @@ app.post('/api/auth/register', (req, res) => {
 
           // Create a default version for the new user
           db.run(
-            'INSERT INTO budget_versions (user_id, name, description, is_active) VALUES (?, ?, ?, 1)',
+            'INSERT INTO budget_versions (user_id, name, description, is_active) VALUES (?, ?, ?, ?)',
             [userId, 'Default', 'Default budget version', 1],
             function(err) {
               if (err) {
