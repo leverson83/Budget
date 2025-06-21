@@ -27,7 +27,8 @@ async function exportSampleData() {
         income: [],
         expenses: [],
         tags: [],
-        settings: []
+        settings: [],
+        expenseTags: []
       };
       
       // Export accounts
@@ -65,15 +66,29 @@ async function exportSampleData() {
                   console.log(`Exported ${settings.length} settings`);
                 }
                 
-                // Write to file
-                const outputPath = path.join(__dirname, 'sample-data.json');
-                fs.writeFileSync(outputPath, JSON.stringify(sampleData, null, 2));
-                console.log(`✅ Sample data exported to ${outputPath}`);
-                
-                // Also create a SQL insert script
-                createSQLScript(sampleData);
-                
-                db.close();
+                // Export expense_tags relationships
+                db.all(`
+                  SELECT et.expense_id, et.tag_id, t.name as tag_name 
+                  FROM expense_tags et
+                  JOIN tags t ON et.tag_id = t.id
+                  JOIN expenses e ON et.expense_id = e.id
+                  WHERE e.user_id = ? AND e.version_id = ?
+                `, [user.id, user.default_version_id], (err, expenseTags) => {
+                  if (!err) {
+                    sampleData.expenseTags = expenseTags;
+                    console.log(`Exported ${expenseTags.length} expense-tag relationships`);
+                  }
+                  
+                  // Write to file
+                  const outputPath = path.join(__dirname, 'sample-data.json');
+                  fs.writeFileSync(outputPath, JSON.stringify(sampleData, null, 2));
+                  console.log(`✅ Sample data exported to ${outputPath}`);
+                  
+                  // Also create a SQL insert script
+                  createSQLScript(sampleData);
+                  
+                  db.close();
+                });
               });
             });
           });
@@ -131,6 +146,15 @@ function createSQLScript(sampleData) {
     sql += `-- Settings\n`;
     sampleData.settings.forEach(setting => {
       sql += `INSERT INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?);\n`;
+    });
+    sql += `\n`;
+  }
+  
+  // Insert expense_tags relationships
+  if (sampleData.expenseTags.length > 0) {
+    sql += `-- Expense-Tag Relationships\n`;
+    sampleData.expenseTags.forEach(et => {
+      sql += `INSERT INTO expense_tags (expense_id, tag_id) VALUES (?, ?);\n`;
     });
     sql += `\n`;
   }

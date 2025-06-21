@@ -325,6 +325,15 @@ function createSampleDataForUser(userId) {
         });
         console.log(`Created ${sampleData.settings.length} settings`);
         
+        // Create expense-tag relationships from sample data
+        sampleData.expenseTags.forEach(et => {
+          db.run(
+            'INSERT INTO expense_tags (expense_id, tag_id) VALUES (?, ?)',
+            [et.expense_id, et.tag_id]
+          );
+        });
+        console.log(`Created ${sampleData.expenseTags.length} expense-tag relationships`);
+        
         console.log(`Sample data created for user ${userId}`);
       }
     );

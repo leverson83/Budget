@@ -809,5 +809,242 @@
       "key": "showSchedulePage",
       "value": "false"
     }
+  ],
+  "expenseTags": [
+    {
+      "expense_id": "84f994a2-f8fb-4eae-a2a0-adfafdba90ef",
+      "tag_id": 5,
+      "tag_name": "Home Loan"
+    },
+    {
+      "expense_id": "c645da57-2202-4b54-babe-236b0b69c0db",
+      "tag_id": 3,
+      "tag_name": "Home"
+    },
+    {
+      "expense_id": "d23452c3-e5c7-477b-ae01-4037dd10aa0b",
+      "tag_id": 3,
+      "tag_name": "Home"
+    },
+    {
+      "expense_id": "db63de87-3537-4693-82c0-98e9c4799b19",
+      "tag_id": 3,
+      "tag_name": "Home"
+    },
+    {
+      "expense_id": "af4bbd97-1266-40c2-94e6-ca9e032080a4",
+      "tag_id": 2,
+      "tag_name": "Kabi"
+    },
+    {
+      "expense_id": "723e3f84-df90-4144-98a8-ceb0b6f8eedb",
+      "tag_id": 2,
+      "tag_name": "Kabi"
+    },
+    {
+      "expense_id": "5fab8533-5f32-48fa-9992-8ab746aad5ea",
+      "tag_id": 2,
+      "tag_name": "Kabi"
+    },
+    {
+      "expense_id": "c0741051-c7a4-4bca-b63e-48cda2a50e1d",
+      "tag_id": 2,
+      "tag_name": "Kabi"
+    },
+    {
+      "expense_id": "965f0c83-3ba7-4ac5-9ca0-61ab547f7459",
+      "tag_id": 2,
+      "tag_name": "Kabi"
+    },
+    {
+      "expense_id": "44acef65-fc18-446e-a000-c9a6ac27cabc",
+      "tag_id": 2,
+      "tag_name": "Kabi"
+    },
+    {
+      "expense_id": "3df367c4-6848-4639-a519-48af2c898470",
+      "tag_id": 4,
+      "tag_name": "Holidays"
+    },
+    {
+      "expense_id": "a42f8cb7-0350-4a8b-b96d-139c6f817a2a",
+      "tag_id": 7,
+      "tag_name": "Cars"
+    },
+    {
+      "expense_id": "e960eda0-43aa-4e3c-81f3-3b523e1cd4c1",
+      "tag_id": 7,
+      "tag_name": "Cars"
+    },
+    {
+      "expense_id": "73c30249-b6b2-4a7e-b741-8d136eda5516",
+      "tag_id": 7,
+      "tag_name": "Cars"
+    },
+    {
+      "expense_id": "2070c01a-1c40-4eb9-a194-59f6ebd2b02d",
+      "tag_id": 9,
+      "tag_name": "Investing"
+    },
+    {
+      "expense_id": "b86133c3-2dc8-41ae-8c0e-4eb8eba4942c",
+      "tag_id": 3,
+      "tag_name": "Home"
+    },
+    {
+      "expense_id": "ee6db2f3-8a9d-40d9-a4c0-bfd0daedf894",
+      "tag_id": 7,
+      "tag_name": "Cars"
+    },
+    {
+      "expense_id": "b4500ef0-1306-48b0-bd1e-6eed57348ed0",
+      "tag_id": 12,
+      "tag_name": "Living Expenses"
+    },
+    {
+      "expense_id": "a35097b3-fb1f-498f-8d39-c32b0b15875b",
+      "tag_id": 12,
+      "tag_name": "Living Expenses"
+    },
+    {
+      "expense_id": "e003c414-09b9-4e52-9a65-61df2453c087",
+      "tag_id": 12,
+      "tag_name": "Living Expenses"
+    },
+    {
+      "expense_id": "c95c645c-a825-4545-9fb0-a65e20aeaa06",
+      "tag_id": 12,
+      "tag_name": "Living Expenses"
+    },
+    {
+      "expense_id": "ddab8a89-44ed-4a4a-ad32-5e345220eb81",
+      "tag_id": 7,
+      "tag_name": "Cars"
+    },
+    {
+      "expense_id": "0dbb1f00-6757-4406-9d4d-82b572f41967",
+      "tag_id": 7,
+      "tag_name": "Cars"
+    },
+    {
+      "expense_id": "796f8d03-5f74-41dd-8593-1d6692b449fe",
+      "tag_id": 18,
+      "tag_name": "Wedding"
+    },
+    {
+      "expense_id": "206f70ae-4070-4ae8-bc30-86f96b2a662d",
+      "tag_id": 12,
+      "tag_name": "Living Expenses"
+    },
+    {
+      "expense_id": "7966f0ca-c421-4413-9d16-b3b0617bbcda",
+      "tag_id": 6,
+      "tag_name": "Kabi Loan"
+    },
+    {
+      "expense_id": "b43cc5c7-c756-41c5-a464-1ae941a13570",
+      "tag_id": 12,
+      "tag_name": "Living Expenses"
+    },
+    {
+      "expense_id": "8e9695d4-c589-4b04-bb3c-76f42b0a9cf5",
+      "tag_id": 12,
+      "tag_name": "Living Expenses"
+    },
+    {
+      "expense_id": "f076dffd-f332-4e16-86c7-905bed7648cc",
+      "tag_id": 3,
+      "tag_name": "Home"
+    },
+    {
+      "expense_id": "996b6644-83fe-4b4b-972e-f2c274b4120d",
+      "tag_id": 2,
+      "tag_name": "Kabi"
+    },
+    {
+      "expense_id": "1e0abc97-7c43-499b-9535-f3796a0da066",
+      "tag_id": 25,
+      "tag_name": "Family"
+    },
+    {
+      "expense_id": "efe39c26-97a4-457b-bc9e-9991a0927980",
+      "tag_id": 12,
+      "tag_name": "Living Expenses"
+    },
+    {
+      "expense_id": "237a3128-827f-426d-9680-5c6345eb32f9",
+      "tag_id": 12,
+      "tag_name": "Living Expenses"
+    },
+    {
+      "expense_id": "a46d7ac3-abb0-41f5-9d2c-d01ca1ed1856",
+      "tag_id": 28,
+      "tag_name": "Subscription"
+    },
+    {
+      "expense_id": "150878e2-a9e5-4a51-9aa6-07a73de750e1",
+      "tag_id": 28,
+      "tag_name": "Subscription"
+    },
+    {
+      "expense_id": "3d8d6339-4799-4f99-86e2-4e3aa0b456dc",
+      "tag_id": 28,
+      "tag_name": "Subscription"
+    },
+    {
+      "expense_id": "9cc7e077-fc31-4352-97e4-9b265bfa7749",
+      "tag_id": 28,
+      "tag_name": "Subscription"
+    },
+    {
+      "expense_id": "61ee592f-ace2-4187-ba99-02a622440326",
+      "tag_id": 12,
+      "tag_name": "Living Expenses"
+    },
+    {
+      "expense_id": "66cfec1e-6c09-4174-9821-94957c061bed",
+      "tag_id": 28,
+      "tag_name": "Subscription"
+    },
+    {
+      "expense_id": "079bee02-88be-4d21-ac51-409f556b1faf",
+      "tag_id": 28,
+      "tag_name": "Subscription"
+    },
+    {
+      "expense_id": "ab4660c4-9270-4c62-b9c4-1ef86f4e447f",
+      "tag_id": 28,
+      "tag_name": "Subscription"
+    },
+    {
+      "expense_id": "fae86696-eb97-45d5-9ea9-8b81ca923de3",
+      "tag_id": 28,
+      "tag_name": "Subscription"
+    },
+    {
+      "expense_id": "db8c1e0c-03f5-485b-a3be-41c23f319006",
+      "tag_id": 7,
+      "tag_name": "Cars"
+    },
+    {
+      "expense_id": "b8600b17-9aaa-484c-b75d-fd220e7803c8",
+      "tag_id": 12,
+      "tag_name": "Living Expenses"
+    },
+    {
+      "expense_id": "cc304441-50f6-4c94-a2e7-935da2280d5f",
+      "tag_id": 7,
+      "tag_name": "Cars"
+    },
+    {
+      "expense_id": "c8ecc259-c34f-46f3-9770-956c7bc54bee",
+      "tag_id": 28,
+      "tag_name": "Subscription"
+    },
+    {
+      "expense_id": "9798e20c-c25f-4ca5-8a80-625bb1485f96",
+      "tag_id": 28,
+      "tag_name": "Subscription"
+    }
   ]
 }
