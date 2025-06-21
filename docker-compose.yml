@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  budget-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: budget-tool-v2
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - JWT_SECRET=${JWT_SECRET:-your-super-secure-jwt-secret-key-here-change-this-in-production}
+    volumes:
+      # Persist database and data
+      - budget_data:/app/backend/data
+      # Mount .env file if you want to override environment variables
+      - ./backend/.env:/app/backend/.env:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  budget_data:
+    driver: local 

@@ -1,3 +1,6 @@
+// Load environment variables
+require('dotenv').config();
+
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
@@ -8,17 +11,26 @@ const jwt = require('jsonwebtoken');
 const app = express();
 const port = 3001;
 
-// JWT secret key (in production, use environment variable)
-const JWT_SECRET = 'your-secret-key-change-in-production';
+// JWT secret key from environment variable, with fallback
+const JWT_SECRET = process.env.JWT_SECRET || (() => {
+  const crypto = require('crypto');
+  const generatedSecret = crypto.randomBytes(64).toString('hex');
+  console.warn('⚠️  No JWT_SECRET found in environment variables. Generated a new one for this session.');
+  console.warn('⚠️  For production, set JWT_SECRET in your .env file.');
+  return generatedSecret;
+})();
 
 // Middleware
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin: process.env.NODE_ENV === 'production' ? false : 'http://localhost:3000',
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
 app.use(express.json());
+
+// Serve static files from the React app build
+app.use(express.static(path.join(__dirname, '../public')));
 
 // Database setup
 const db = new sqlite3.Database(path.join(__dirname, 'budget.db'), (err) => {
@@ -1665,6 +1677,25 @@ app.get('/api/debug/users', (req, res) => {
     }
     res.json(rows);
   });
+});
+
+// Health check endpoint for Docker
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'healthy', 
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
+
+// Catch-all handler: send back React's index.html file for any non-API routes
+app.get('*', (req, res) => {
+  // Don't serve index.html for API routes
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  
+  res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
 // Add error handling middleware before app.listen
