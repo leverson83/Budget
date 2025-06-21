@@ -42,6 +42,7 @@ import { API_URL, frequencies, type Frequency } from "../config";
 import { useFrequency } from '../contexts/FrequencyContext';
 import { v4 as uuidv4 } from 'uuid';
 import { apiCall } from '../utils/api';
+import { useSearchParams } from 'react-router-dom';
 
 interface Expense {
   id: string;
@@ -172,6 +173,8 @@ const Expenses = () => {
 
   const [editingCalcId, setEditingCalcId] = useState<string | null>(null);
 
+  const searchParams = useSearchParams()[0];
+
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
@@ -241,6 +244,20 @@ const Expenses = () => {
 
     fetchData();
   }, []);
+
+  useEffect(() => {
+    const searchTags = searchParams.get('tags');
+    if (searchTags) {
+      setSelectedTags(searchTags.split(','));
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    const searchAccount = searchParams.get('account');
+    if (searchAccount) {
+      setSelectedAccount(searchAccount);
+    }
+  }, [searchParams]);
 
   const saveFrequency = async (newFrequency: Frequency) => {
     try {

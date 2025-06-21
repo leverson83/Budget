@@ -7,6 +7,7 @@ import ChartDataLabels from 'chartjs-plugin-datalabels';
 import { API_URL, type Frequency, frequencies } from '../config';
 import { useFrequency } from '../contexts/FrequencyContext';
 import { apiCall } from '../utils/api';
+import { useNavigate } from 'react-router-dom';
 
 ChartJS.register(ArcElement, Tooltip, Legend, ChartDataLabels);
 
@@ -132,7 +133,8 @@ const AccountTile = ({
   incomes,
   editableBalance,
   onBalanceChange,
-  onBalanceUpdate
+  onBalanceUpdate,
+  onClick
 }: { 
   account: Account | { name: string, currentBalance: number }, 
   isIncomeSource?: boolean, 
@@ -147,7 +149,8 @@ const AccountTile = ({
   incomes?: IncomeEntry[],
   editableBalance?: number,
   onBalanceChange?: (accountId: number, newBalance: number) => void,
-  onBalanceUpdate?: (accountId: number) => void
+  onBalanceUpdate?: (accountId: number) => void,
+  onClick?: (accountId: number) => void
 }) => {
   const isPrimary = 'isPrimary' in account && !!account.isPrimary;
   
@@ -187,6 +190,7 @@ const AccountTile = ({
       borderColor: borderColor, 
       borderRadius: 1,
       bgcolor: isChecked ? 'grey.100' : 'transparent',
+      cursor: !isAuditing && onClick && 'id' in account ? 'pointer' : 'default',
       ...(isPrimary && {
         animation: `pulseBorder 2s ease-in-out infinite`,
         '@keyframes pulseBorder': {
@@ -195,7 +199,13 @@ const AccountTile = ({
           '100%': { boxShadow: '0 0 4px #1976d2' }
         }
       })
-    }}>
+    }}
+    onClick={() => {
+      if (!isAuditing && onClick && 'id' in account) {
+        onClick(account.id);
+      }
+    }}
+    >
       <Typography variant="caption" sx={{ position: 'absolute', top: '-8px', left: '12px', bgcolor: 'background.default', px: 1, fontWeight: 'bold', color: labelColor }}>
         {account.name}
       </Typography>
@@ -401,6 +411,7 @@ const Dashboard = () => {
   const [editableBalances, setEditableBalances] = useState<{ [key: number]: number }>({});
   const [showAuditStartDialog, setShowAuditStartDialog] = useState(false);
   const [showAuditCompleteDialog, setShowAuditCompleteDialog] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const fetchData = async () => {
@@ -556,171 +567,210 @@ const Dashboard = () => {
     setEditableBalances({});
   };
 
+  const handlePieChartClick = (event: any, elements: any[]) => {
+    if (elements.length > 0) {
+      const index = elements[0].index;
+      const labels = (() => {
+        const allTags = expenses.flatMap(expense => expense.tags || []);
+        const uniqueTags = [...new Set(allTags)];
+        const labels = uniqueTags.length > 0 ? uniqueTags : ['No Tags'];
+        // Add Savings to the labels
+        const totalIncome = calculateTotalForFrequency(incomes, frequency);
+        const totalExpenses = calculateTotalForFrequency(expenses, frequency);
+        const savings = totalIncome - totalExpenses;
+        if (savings > 0) {
+          labels.push('Savings');
+        }
+        return labels;
+      })();
+      
+      const clickedLabel = labels[index];
+      
+      // Don't navigate for "Savings" or "No Tags"
+      if (clickedLabel === 'Savings' || clickedLabel === 'No Tags') {
+        return;
+      }
+      
+      // Navigate to expenses page with tag filter
+      navigate(`/expenses?tags=${encodeURIComponent(clickedLabel)}`);
+    }
+  };
+
+  const handleAccountClick = (accountId: number) => {
+    // Only allow navigation when not in audit mode
+    if (!isAuditing) {
+      navigate(`/expenses?account=${accountId}`);
+    }
+  };
+
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}><CircularProgress /></Box>;
   if (error) return <Box sx={{ p: 3 }}><Alert severity="error">{error}</Alert></Box>;
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', mb: 4, flexWrap: 'wrap', gap: 2 }}>
-        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-          <FormControl size="small" sx={{ minWidth: 150 }}>
-            <InputLabel>Frequency</InputLabel>
-            <Select value={frequency} label="Frequency" onChange={(e) => setFrequency(e.target.value as Frequency)}>
-              {frequencies.map((f) => <MenuItem key={f.value} value={f.value}>{f.label}</MenuItem>)}
-            </Select>
-          </FormControl>
-          <Button variant="outlined" sx={{ height: 40 }} onClick={handleStartAudit}>Account Check</Button>
-        </Box>
-      </Box>
-
-      <Box sx={{ my: 5, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '60px' }}>
-        <Box sx={{ position: 'relative' }}>
-          <AccountTile account={incomeAccount} isIncomeSource={true} expenses={expenses} frequency={frequency} incomes={incomes} />
+    <>
+      <Box sx={{ p: 3 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', mb: 4, flexWrap: 'wrap', gap: 2 }}>
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+            <FormControl size="small" sx={{ minWidth: 150 }}>
+              <InputLabel>Frequency</InputLabel>
+              <Select value={frequency} label="Frequency" onChange={(e) => setFrequency(e.target.value as Frequency)}>
+                {frequencies.map((f) => <MenuItem key={f.value} value={f.value}>{f.label}</MenuItem>)}
+              </Select>
+            </FormControl>
+            <Button variant="outlined" sx={{ height: 40 }} onClick={handleStartAudit}>Account Check</Button>
+          </Box>
         </Box>
 
-        {primaryAccount && (
-          <Box sx={{ position: 'relative', '&::before': { content: '""', position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)', width: '2px', height: '60px', bgcolor: 'success.main', animation: 'flowDown 1.5s ease-in-out infinite', '@keyframes flowDown': { '0%': { background: 'linear-gradient(to bottom, #4caf50 0%, transparent 0%)', boxShadow: '0 0 5px #4caf50' }, '20%': { background: 'linear-gradient(to bottom, #4caf50 0%, #4caf50 20%, transparent 20%)', boxShadow: '0 0 8px #4caf50' }, '40%': { background: 'linear-gradient(to bottom, #4caf50 0%, #4caf50 40%, transparent 40%)', boxShadow: '0 0 10px #4caf50, 0 0 15px #4caf50' }, '60%': { background: 'linear-gradient(to bottom, #4caf50 0%, #4caf50 60%, transparent 60%)', boxShadow: '0 0 12px #4caf50, 0 0 20px #4caf50' }, '80%': { background: 'linear-gradient(to bottom, #4caf50 0%, #4caf50 80%, transparent 80%)', boxShadow: '0 0 8px #4caf50' }, '100%': { background: 'linear-gradient(to bottom, #4caf50 0%, #4caf50 100%)', boxShadow: '0 0 5px #4caf50' } } } }}>
-            <AccountTile account={primaryAccount} netIncome={netIncome} expenses={expenses} frequency={frequency} incomes={incomes} />
+        <Box sx={{ my: 5, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '60px' }}>
+          <Box sx={{ position: 'relative' }}>
+            <AccountTile account={incomeAccount} isIncomeSource={true} expenses={expenses} frequency={frequency} incomes={incomes} onClick={handleAccountClick} />
           </Box>
-        )}
 
-        {primaryAccount && (
-          <Box sx={{ position: 'relative', '&::before': { content: '""', position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)', width: '2px', height: '60px', bgcolor: 'error.main', animation: 'flowDownRed 1.5s ease-in-out infinite', '@keyframes flowDownRed': { '0%': { background: 'linear-gradient(to bottom, #f44336 0%, transparent 0%)', boxShadow: '0 0 5px #f44336' }, '20%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 20%, transparent 20%)', boxShadow: '0 0 8px #f44336' }, '40%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 40%, transparent 40%)', boxShadow: '0 0 10px #f44336, 0 0 15px #f44336' }, '60%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 60%, transparent 60%)', boxShadow: '0 0 12px #f44336, 0 0 20px #f44336' }, '80%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 80%, transparent 80%)', boxShadow: '0 0 8px #f44336' }, '100%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 100%)', boxShadow: '0 0 5px #f44336' } } } }}>
-            <AccountTile account={expenseAccount} isExpenseSource={true} expenses={expenses} frequency={frequency} incomes={incomes} />
-          </Box>
-        )}
+          {primaryAccount && (
+            <Box sx={{ position: 'relative', '&::before': { content: '""', position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)', width: '2px', height: '60px', bgcolor: 'success.main', animation: 'flowDown 1.5s ease-in-out infinite', '@keyframes flowDown': { '0%': { background: 'linear-gradient(to bottom, #4caf50 0%, transparent 0%)', boxShadow: '0 0 5px #4caf50' }, '20%': { background: 'linear-gradient(to bottom, #4caf50 0%, #4caf50 20%, transparent 20%)', boxShadow: '0 0 8px #4caf50' }, '40%': { background: 'linear-gradient(to bottom, #4caf50 0%, #4caf50 40%, transparent 40%)', boxShadow: '0 0 10px #4caf50, 0 0 15px #4caf50' }, '60%': { background: 'linear-gradient(to bottom, #4caf50 0%, #4caf50 60%, transparent 60%)', boxShadow: '0 0 12px #4caf50, 0 0 20px #4caf50' }, '80%': { background: 'linear-gradient(to bottom, #4caf50 0%, #4caf50 80%, transparent 80%)', boxShadow: '0 0 8px #4caf50' }, '100%': { background: 'linear-gradient(to bottom, #4caf50 0%, #4caf50 100%)', boxShadow: '0 0 5px #4caf50' } } } }}>
+              <AccountTile account={primaryAccount} netIncome={netIncome} expenses={expenses} frequency={frequency} incomes={incomes} onClick={handleAccountClick} />
+            </Box>
+          )}
 
-        {primaryAccount && otherAccounts.length > 0 && (
-      <Box sx={{ 
-        display: 'flex', 
-            justifyContent: 'center', 
-            gap: 4, 
-            position: 'relative', 
-        flexWrap: 'wrap',
-            '&::before': {
-              content: '""',
-              position: 'absolute',
-              bottom: '100%',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              width: '2px',
-              height: '60px',
-              bgcolor: 'error.main',
-              animation: 'flowDownRed 1.5s ease-in-out infinite',
-              '@keyframes flowDownRed': {
-                '0%': { background: 'linear-gradient(to bottom, #f44336 0%, transparent 0%)', boxShadow: '0 0 5px #f44336' },
-                '20%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 20%, transparent 20%)', boxShadow: '0 0 8px #f44336' },
-                '40%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 40%, transparent 40%)', boxShadow: '0 0 10px #f44336, 0 0 15px #f44336' },
-                '60%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 60%, transparent 60%)', boxShadow: '0 0 12px #f44336, 0 0 20px #f44336' },
-                '80%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 80%, transparent 80%)', boxShadow: '0 0 8px #f44336' },
-                '100%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 100%)', boxShadow: '0 0 5px #f44336' }
+          {primaryAccount && (
+            <Box sx={{ position: 'relative', '&::before': { content: '""', position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)', width: '2px', height: '60px', bgcolor: 'error.main', animation: 'flowDownRed 1.5s ease-in-out infinite', '@keyframes flowDownRed': { '0%': { background: 'linear-gradient(to bottom, #f44336 0%, transparent 0%)', boxShadow: '0 0 5px #f44336' }, '20%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 20%, transparent 20%)', boxShadow: '0 0 8px #f44336' }, '40%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 40%, transparent 40%)', boxShadow: '0 0 10px #f44336, 0 0 15px #f44336' }, '60%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 60%, transparent 60%)', boxShadow: '0 0 12px #f44336, 0 0 20px #f44336' }, '80%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 80%, transparent 80%)', boxShadow: '0 0 8px #f44336' }, '100%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 100%)', boxShadow: '0 0 5px #f44336' } } } }}>
+              <AccountTile account={expenseAccount} isExpenseSource={true} expenses={expenses} frequency={frequency} incomes={incomes} onClick={handleAccountClick} />
+            </Box>
+          )}
+
+          {primaryAccount && otherAccounts.length > 0 && (
+            <Box sx={{ 
+              display: 'flex', 
+              justifyContent: 'center', 
+              gap: 4, 
+              position: 'relative', 
+              flexWrap: 'wrap',
+              '&::before': {
+                content: '""',
+                position: 'absolute',
+                bottom: '100%',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                width: '2px',
+                height: '60px',
+                bgcolor: 'error.main',
+                animation: 'flowDownRed 1.5s ease-in-out infinite',
+                '@keyframes flowDownRed': {
+                  '0%': { background: 'linear-gradient(to bottom, #f44336 0%, transparent 0%)', boxShadow: '0 0 5px #f44336' },
+                  '20%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 20%, transparent 20%)', boxShadow: '0 0 8px #f44336' },
+                  '40%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 40%, transparent 40%)', boxShadow: '0 0 10px #f44336, 0 0 15px #f44336' },
+                  '60%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 60%, transparent 60%)', boxShadow: '0 0 12px #f44336, 0 0 20px #f44336' },
+                  '80%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 80%, transparent 80%)', boxShadow: '0 0 8px #f44336' },
+                  '100%': { background: 'linear-gradient(to bottom, #f44336 0%, #f44336 100%)', boxShadow: '0 0 5px #f44336' }
+                }
               }
-            }
-          }}>
-            {otherAccounts.map((account) => {
-              const accountExpenses = expenses.filter(e => e.accountId === account.id);
-              const totalAccountExpenses = calculateTotalForFrequency(accountExpenses, frequency);
-              return (
-                <AccountTile 
-                  key={account.id} 
-                  account={account} 
-                  accountExpensesTotal={totalAccountExpenses}
-                  isAuditing={isAuditing}
-                  isChecked={checkedAccounts.has(account.id)}
-                  onAccountCheck={handleAccountCheck}
-                  expenses={expenses}
-                  frequency={frequency}
-                  incomes={incomes}
-                  editableBalance={editableBalances[account.id]}
-                  onBalanceChange={handleBalanceChange}
-                  onBalanceUpdate={handleBalanceUpdate}
-                />
-              );
-            })}
-          </Box>
-        )}
-      </Box>
+            }}>
+              {otherAccounts.map((account) => {
+                const accountExpenses = expenses.filter(e => e.accountId === account.id);
+                const totalAccountExpenses = calculateTotalForFrequency(accountExpenses, frequency);
+                return (
+                  <AccountTile 
+                    key={account.id} 
+                    account={account} 
+                    accountExpensesTotal={totalAccountExpenses}
+                    isAuditing={isAuditing}
+                    isChecked={checkedAccounts.has(account.id)}
+                    onAccountCheck={handleAccountCheck}
+                    expenses={expenses}
+                    frequency={frequency}
+                    incomes={incomes}
+                    editableBalance={editableBalances[account.id]}
+                    onBalanceChange={handleBalanceChange}
+                    onBalanceUpdate={handleBalanceUpdate}
+                    onClick={handleAccountClick}
+                  />
+                );
+              })}
+            </Box>
+          )}
+        </Box>
 
-      {/* Expenses by Tag Pie Chart */}
-      {expenses.length > 0 && (
-        <Box sx={{ mt: 6, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <Typography variant="h5" sx={{ mb: 3, fontWeight: 'bold' }}>
-            Expenses by Tag
+        {/* Expenses by Tag Pie Chart */}
+        {expenses.length > 0 && (
+          <Box sx={{ mt: 6, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <Typography variant="h5" sx={{ mb: 3, fontWeight: 'bold' }}>
+              Expenses by Tag
             </Typography>
-          <Box sx={{ width: '100%', maxWidth: 600, height: 400 }}>
-            <Pie 
-              data={{
-                labels: (() => {
-                  const allTags = expenses.flatMap(expense => expense.tags || []);
-                  const uniqueTags = [...new Set(allTags)];
-                  const labels = uniqueTags.length > 0 ? uniqueTags : ['No Tags'];
-                  // Add Savings to the labels
-                  const totalIncome = calculateTotalForFrequency(incomes, frequency);
-                  const totalExpenses = calculateTotalForFrequency(expenses, frequency);
-                  const savings = totalIncome - totalExpenses;
-                  if (savings > 0) {
-                    labels.push('Savings');
-                  }
-                  return labels;
-                })(),
-                datasets: [{
-                  data: (() => {
+            <Box sx={{ width: '100%', maxWidth: 600, height: 400, cursor: 'pointer' }}>
+              <Pie 
+                data={{
+                  labels: (() => {
                     const allTags = expenses.flatMap(expense => expense.tags || []);
                     const uniqueTags = [...new Set(allTags)];
-                    
-                    let data = [];
-                    if (uniqueTags.length === 0) {
-                      // If no tags, show total expenses as "No Tags"
-                      data.push(calculateTotalForFrequency(expenses, frequency));
-                    } else {
-                      data = uniqueTags.map(tag => {
-                        const tagExpenses = expenses.filter(expense => 
-                          expense.tags && expense.tags.includes(tag)
-                        );
-                        return calculateTotalForFrequency(tagExpenses, frequency);
-                      });
-                    }
-                    
-                    // Add savings to the data
+                    const labels = uniqueTags.length > 0 ? uniqueTags : ['No Tags'];
+                    // Add Savings to the labels
                     const totalIncome = calculateTotalForFrequency(incomes, frequency);
                     const totalExpenses = calculateTotalForFrequency(expenses, frequency);
                     const savings = totalIncome - totalExpenses;
                     if (savings > 0) {
-                      data.push(savings);
+                      labels.push('Savings');
                     }
-                    
-                    return data;
+                    return labels;
                   })(),
-                  backgroundColor: (() => {
-                    const allTags = expenses.flatMap(expense => expense.tags || []);
-                    const uniqueTags = [...new Set(allTags)];
-                    
-                    let colors = [];
-                    if (uniqueTags.length === 0) {
-                      // If no tags, use a neutral color for "No Tags"
-                      colors.push('#C9CBCF');
-                    } else {
-                      // Use custom colors for each tag
-                      colors = uniqueTags.map(tag => getTagColor(tag, tags));
-                    }
-                    
-                    // Add green color for savings
-                    const totalIncome = calculateTotalForFrequency(incomes, frequency);
-                    const totalExpenses = calculateTotalForFrequency(expenses, frequency);
-                    const savings = totalIncome - totalExpenses;
-                    if (savings > 0) {
-                      colors.push('#4CAF50'); // Green for savings
-                    }
-                    
-                    return colors;
-                  })(),
-                  borderWidth: 2,
-                  borderColor: '#fff'
-                }]
-              }}
+                  datasets: [{
+                    data: (() => {
+                      const allTags = expenses.flatMap(expense => expense.tags || []);
+                      const uniqueTags = [...new Set(allTags)];
+                      
+                      let data = [];
+                      if (uniqueTags.length === 0) {
+                        // If no tags, show total expenses as "No Tags"
+                        data.push(calculateTotalForFrequency(expenses, frequency));
+                      } else {
+                        data = uniqueTags.map(tag => {
+                          const tagExpenses = expenses.filter(expense => 
+                            expense.tags && expense.tags.includes(tag)
+                          );
+                          return calculateTotalForFrequency(tagExpenses, frequency);
+                        });
+                      }
+                      
+                      // Add savings to the data
+                      const totalIncome = calculateTotalForFrequency(incomes, frequency);
+                      const totalExpenses = calculateTotalForFrequency(expenses, frequency);
+                      const savings = totalIncome - totalExpenses;
+                      if (savings > 0) {
+                        data.push(savings);
+                      }
+                      
+                      return data;
+                    })(),
+                    backgroundColor: (() => {
+                      const allTags = expenses.flatMap(expense => expense.tags || []);
+                      const uniqueTags = [...new Set(allTags)];
+                      
+                      let colors = [];
+                      if (uniqueTags.length === 0) {
+                        // If no tags, use a neutral color for "No Tags"
+                        colors.push('#C9CBCF');
+                      } else {
+                        // Use custom colors for each tag
+                        colors = uniqueTags.map(tag => getTagColor(tag, tags));
+                      }
+                      
+                      // Add green color for savings
+                      const totalIncome = calculateTotalForFrequency(incomes, frequency);
+                      const totalExpenses = calculateTotalForFrequency(expenses, frequency);
+                      const savings = totalIncome - totalExpenses;
+                      if (savings > 0) {
+                        colors.push('#4CAF50'); // Green for savings
+                      }
+                      
+                      return colors;
+                    })(),
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                  }]
+                }}
                 options={{
                   responsive: true,
                   maintainAspectRatio: false,
+                  onClick: handlePieChartClick,
                   plugins: {
                     legend: {
                       display: false
@@ -732,7 +782,8 @@ const Dashboard = () => {
                           const value = context.parsed;
                           const total = context.dataset.data.reduce((sum: number, val: number) => sum + val, 0);
                           const percentage = ((value / total) * 100).toFixed(1);
-                          return `${label}: ${formatCurrency(value)} (${percentage}%)`;
+                          const isClickable = label !== 'Savings' && label !== 'No Tags';
+                          return `${label}: ${formatCurrency(value)} (${percentage}%)${isClickable ? ' - Click to filter' : ''}`;
                         }
                       }
                     },
@@ -757,11 +808,15 @@ const Dashboard = () => {
                       textStrokeWidth: 2
                     }
                   }
-                }} 
+                }}
               />
             </Box>
-        </Box>
-      )}
+            <Typography variant="caption" sx={{ mt: 1, color: 'text.secondary', textAlign: 'center' }}>
+              Click on a tag segment to view filtered expenses
+            </Typography>
+          </Box>
+        )}
+      </Box>
 
       <Dialog 
         open={showAuditStartDialog} 
@@ -805,7 +860,7 @@ const Dashboard = () => {
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </>
   );
 };
 
