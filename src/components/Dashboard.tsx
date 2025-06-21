@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Typography, CircularProgress, Alert, Select, MenuItem, FormControl, InputLabel, Chip, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Checkbox } from '@mui/material';
+import { Box, Typography, CircularProgress, Alert, Select, MenuItem, FormControl, InputLabel, Chip, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Checkbox, TextField } from '@mui/material';
 import type { SelectChangeEvent } from '@mui/material/Select';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
 import { Pie } from 'react-chartjs-2';
@@ -129,7 +129,10 @@ const AccountTile = ({
   onAccountCheck,
   expenses,
   frequency,
-  incomes
+  incomes,
+  editableBalance,
+  onBalanceChange,
+  onBalanceUpdate
 }: { 
   account: Account | { name: string, currentBalance: number }, 
   isIncomeSource?: boolean, 
@@ -141,7 +144,10 @@ const AccountTile = ({
   onAccountCheck?: (accountId: number, checked: boolean) => void,
   expenses?: ExpenseEntry[],
   frequency?: Frequency,
-  incomes?: IncomeEntry[]
+  incomes?: IncomeEntry[],
+  editableBalance?: number,
+  onBalanceChange?: (accountId: number, newBalance: number) => void,
+  onBalanceUpdate?: (accountId: number) => void
 }) => {
   const isPrimary = 'isPrimary' in account && !!account.isPrimary;
   
@@ -317,9 +323,59 @@ const AccountTile = ({
           </Typography>
         ) : (
           <>
-            <Typography variant="body1" sx={{ textAlign: 'center', color: isChecked ? 'black' : 'inherit' }}>
-              Balance: <strong>{formatCurrency(account.currentBalance, true)}</strong>
-            </Typography>
+            {isAuditing && !isPrimary && 'id' in account && onBalanceChange ? (
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                <Typography variant="body2" sx={{ textAlign: 'center', color: isChecked ? 'black' : 'inherit' }}>
+                  Balance:
+                </Typography>
+                <TextField
+                  type="number"
+                  value={editableBalance !== undefined ? editableBalance : account.currentBalance}
+                  onChange={(e) => {
+                    const newBalance = parseFloat(e.target.value) || 0;
+                    onBalanceChange(account.id, newBalance);
+                  }}
+                  onBlur={() => onBalanceUpdate && onBalanceUpdate(account.id)}
+                  size="small"
+                  sx={{ 
+                    width: '120px',
+                    '& .MuiInputBase-input': { 
+                      textAlign: 'center',
+                      fontWeight: 'bold',
+                      fontSize: '1rem'
+                    },
+                    '& .MuiOutlinedInput-root': {
+                      ...(editableBalance !== undefined && editableBalance !== account.currentBalance && {
+                        borderColor: 'warning.main',
+                        '&:hover': {
+                          borderColor: 'warning.main'
+                        },
+                        '&.Mui-focused': {
+                          borderColor: 'warning.main'
+                        }
+                      })
+                    }
+                  }}
+                  inputProps={{ 
+                    step: 0.01,
+                    min: 0
+                  }}
+                  helperText={editableBalance !== undefined && editableBalance !== account.currentBalance ? "Click outside to save" : ""}
+                  FormHelperTextProps={{
+                    sx: { 
+                      fontSize: '0.7rem', 
+                      textAlign: 'center',
+                      margin: 0,
+                      color: 'warning.main'
+                    }
+                  }}
+                />
+              </Box>
+            ) : (
+              <Typography variant="body1" sx={{ textAlign: 'center', color: isChecked ? 'black' : 'inherit' }}>
+                Balance: <strong>{formatCurrency(account.currentBalance, true)}</strong>
+              </Typography>
+            )}
             {'requiredBalance' in account && !isPrimary && (
               <Typography variant="body2" sx={{ color: isChecked ? 'black' : diffColor, fontWeight: 'bold', textAlign: 'center' }}>
                 Difference: {diffText}
@@ -342,6 +398,7 @@ const Dashboard = () => {
   const [error, setError] = useState<string | null>(null);
   const [isAuditing, setIsAuditing] = useState(false);
   const [checkedAccounts, setCheckedAccounts] = useState<Set<number>>(new Set());
+  const [editableBalances, setEditableBalances] = useState<{ [key: number]: number }>({});
   const [showAuditStartDialog, setShowAuditStartDialog] = useState(false);
   const [showAuditCompleteDialog, setShowAuditCompleteDialog] = useState(false);
 
@@ -423,6 +480,14 @@ const Dashboard = () => {
     setShowAuditStartDialog(false);
     setIsAuditing(true);
     setCheckedAccounts(new Set());
+    // Initialize editable balances with current account balances
+    const initialBalances: { [key: number]: number } = {};
+    accounts.forEach(account => {
+      if (!account.isPrimary) {
+        initialBalances[account.id] = account.currentBalance;
+      }
+    });
+    setEditableBalances(initialBalances);
   };
 
   const handleAccountCheck = (accountId: number, isChecked: boolean) => {
@@ -437,10 +502,58 @@ const Dashboard = () => {
     });
   };
 
+  const handleBalanceChange = (accountId: number, newBalance: number) => {
+    setEditableBalances(prev => ({
+      ...prev,
+      [accountId]: newBalance
+    }));
+  };
+
+  const handleBalanceUpdate = async (accountId: number) => {
+    const newBalance = editableBalances[accountId];
+    if (newBalance === undefined) return;
+
+    try {
+      const response = await apiCall(`/accounts/${accountId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentBalance: newBalance,
+          // Keep other fields unchanged
+          name: accounts.find(a => a.id === accountId)?.name || '',
+          bank: accounts.find(a => a.id === accountId)?.bank || '',
+          requiredBalance: accounts.find(a => a.id === accountId)?.requiredBalance || 0,
+          isPrimary: accounts.find(a => a.id === accountId)?.isPrimary || false,
+          diff: newBalance - (accounts.find(a => a.id === accountId)?.requiredBalance || 0)
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update account balance');
+      }
+
+      // Update the local accounts state
+      setAccounts(prev => prev.map(account => 
+        account.id === accountId 
+          ? { ...account, currentBalance: newBalance, diff: newBalance - account.requiredBalance }
+          : account
+      ));
+
+    } catch (error) {
+      console.error('Error updating account balance:', error);
+      // Revert the editable balance to the original value
+      setEditableBalances(prev => ({
+        ...prev,
+        [accountId]: accounts.find(a => a.id === accountId)?.currentBalance || 0
+      }));
+    }
+  };
+
   const handleCloseAuditCompleteDialog = () => {
     setShowAuditCompleteDialog(false);
     setIsAuditing(false);
     setCheckedAccounts(new Set());
+    setEditableBalances({});
   };
 
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}><CircularProgress /></Box>;
@@ -456,7 +569,7 @@ const Dashboard = () => {
               {frequencies.map((f) => <MenuItem key={f.value} value={f.value}>{f.label}</MenuItem>)}
             </Select>
           </FormControl>
-          <Button variant="outlined" sx={{ height: 40 }} onClick={handleStartAudit}>Audit Transfers</Button>
+          <Button variant="outlined" sx={{ height: 40 }} onClick={handleStartAudit}>Account Check</Button>
         </Box>
       </Box>
 
@@ -518,6 +631,9 @@ const Dashboard = () => {
                   expenses={expenses}
                   frequency={frequency}
                   incomes={incomes}
+                  editableBalance={editableBalances[account.id]}
+                  onBalanceChange={handleBalanceChange}
+                  onBalanceUpdate={handleBalanceUpdate}
                 />
               );
             })}
@@ -651,16 +767,24 @@ const Dashboard = () => {
         open={showAuditStartDialog} 
         onClose={() => setShowAuditStartDialog(false)}
       >
-        <DialogTitle>Start Audit</DialogTitle>
+        <DialogTitle>Start Check</DialogTitle>
         <DialogContent>
-          <DialogContentText>
-            Check each account has the correct transfer amount setup through internet banking
-          </DialogContentText>
+          <Box component="ol" sx={{ pl: 2, m: 0 }}>
+            <Box component="li" sx={{ mb: 1 }}>
+              Check each account has the correct transfer amount setup through internet banking
+            </Box>
+            <Box component="li" sx={{ mb: 1 }}>
+              Enter the current account balance
+            </Box>
+            <Box component="li" sx={{ mb: 0 }}>
+              Tick the checkbox to confirm account information up to date
+            </Box>
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setShowAuditStartDialog(false)}>Cancel</Button>
           <Button onClick={handleConfirmStartAudit} color="error" variant="contained">
-            Start Audit
+            Start Check
           </Button>
         </DialogActions>
       </Dialog>
@@ -669,10 +793,10 @@ const Dashboard = () => {
         open={showAuditCompleteDialog} 
         onClose={() => setShowAuditCompleteDialog(false)}
       >
-        <DialogTitle>Audit Complete</DialogTitle>
+        <DialogTitle>Finished</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            All transfers confirmed
+            All accounts up to date
           </DialogContentText>
         </DialogContent>
         <DialogActions>
