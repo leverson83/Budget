@@ -35,6 +35,9 @@ RUN npm ci
 # Copy backend source code
 COPY backend/ ./
 
+# Copy sample data file
+COPY backend/sample-data.json ./
+
 # Stage 3: Production runtime
 FROM node:18-alpine AS production
 

@@ -1,0 +1,813 @@
+{
+  "userId": 1,
+  "versionId": 1,
+  "accounts": [
+    {
+      "id": 1,
+      "name": "Joint Bills",
+      "bank": "ANZ",
+      "currentBalance": 5000,
+      "requiredBalance": 6269.1,
+      "isPrimary": 0,
+      "diff": -1269.1000000000004,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": 2,
+      "name": "Joint Savings",
+      "bank": "ANZ",
+      "currentBalance": 1000,
+      "requiredBalance": 0,
+      "isPrimary": 1,
+      "diff": 1000,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": 3,
+      "name": "Holiday",
+      "bank": "ANZ",
+      "currentBalance": 1200,
+      "requiredBalance": 961.54,
+      "isPrimary": 0,
+      "diff": 238.46000000000004,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": 4,
+      "name": "Family",
+      "bank": "ANZ",
+      "currentBalance": 250,
+      "requiredBalance": 504.81,
+      "isPrimary": 0,
+      "diff": -100,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": 7,
+      "name": "Kabi Bills",
+      "bank": "Bendigo",
+      "currentBalance": 2000,
+      "requiredBalance": 1948.0800000000002,
+      "isPrimary": 0,
+      "diff": 51.919999999999845,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": 8,
+      "name": "Joint Spendings",
+      "bank": "ANZ",
+      "currentBalance": 300,
+      "requiredBalance": 500,
+      "isPrimary": 0,
+      "diff": -200,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": 9,
+      "name": "Kabi Offset",
+      "bank": "Bendigo",
+      "currentBalance": 1200,
+      "requiredBalance": 1261.38,
+      "isPrimary": 0,
+      "diff": -61.38000000000011,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": 10,
+      "name": "Luke Spendings",
+      "bank": "ANZ",
+      "currentBalance": 100,
+      "requiredBalance": 75,
+      "isPrimary": 0,
+      "diff": 25,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": 11,
+      "name": "Marina Spendings",
+      "bank": "ANZ",
+      "currentBalance": 200,
+      "requiredBalance": 75,
+      "isPrimary": 0,
+      "diff": 125,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": 12,
+      "name": "Kabi Slush",
+      "bank": "Bendigo",
+      "currentBalance": 500,
+      "requiredBalance": 50,
+      "isPrimary": 0,
+      "diff": 450,
+      "user_id": 1,
+      "version_id": 1
+    }
+  ],
+  "income": [
+    {
+      "id": "1750389783004",
+      "description": "Luke",
+      "amount": 6512,
+      "frequency": "monthly",
+      "nextDue": "2025-06-15T00:00:00.000Z",
+      "applyFuzziness": 0,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "1750399256632",
+      "description": "Marina",
+      "amount": 5365,
+      "frequency": "monthly",
+      "nextDue": "2025-06-15T00:00:00.000Z",
+      "applyFuzziness": 0,
+      "user_id": 1,
+      "version_id": 1
+    }
+  ],
+  "expenses": [
+    {
+      "id": "84f994a2-f8fb-4eae-a2a0-adfafdba90ef",
+      "description": "Home Loan",
+      "amount": 520,
+      "frequency": "weekly",
+      "nextDue": "2025-06-16",
+      "applyFuzziness": 0,
+      "notes": "$10,000 + ahead for baby, remainer for wedding",
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "c645da57-2202-4b54-babe-236b0b69c0db",
+      "description": "Council Rates",
+      "amount": 505,
+      "frequency": "quarterly",
+      "nextDue": "2025-01-01",
+      "applyFuzziness": 0,
+      "notes": "Formby St",
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "d23452c3-e5c7-477b-ae01-4037dd10aa0b",
+      "description": "Body Corporate",
+      "amount": 4559,
+      "frequency": "annually",
+      "nextDue": "2025-01-01",
+      "applyFuzziness": 0,
+      "notes": "Formby St",
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "db63de87-3537-4693-82c0-98e9c4799b19",
+      "description": "Water",
+      "amount": 1600,
+      "frequency": "annually",
+      "nextDue": "2025-01-01",
+      "applyFuzziness": 0,
+      "notes": "Formby St",
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "af4bbd97-1266-40c2-94e6-ca9e032080a4",
+      "description": "Internet",
+      "amount": 69,
+      "frequency": "monthly",
+      "nextDue": "2025-06-01",
+      "applyFuzziness": 0,
+      "notes": "For Kabi",
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "723e3f84-df90-4144-98a8-ceb0b6f8eedb",
+      "description": "Kabi Body Corporate",
+      "amount": 1944,
+      "frequency": "annually",
+      "nextDue": "2025-01-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 7,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "5fab8533-5f32-48fa-9992-8ab746aad5ea",
+      "description": "Kabi Rates",
+      "amount": 1250,
+      "frequency": "annually",
+      "nextDue": "2025-01-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 7,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "c0741051-c7a4-4bca-b63e-48cda2a50e1d",
+      "description": "Kabi Electricity",
+      "amount": 75,
+      "frequency": "monthly",
+      "nextDue": "2025-06-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 7,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "965f0c83-3ba7-4ac5-9ca0-61ab547f7459",
+      "description": "Kabi Water",
+      "amount": 600,
+      "frequency": "annually",
+      "nextDue": "2025-01-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 7,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "44acef65-fc18-446e-a000-c9a6ac27cabc",
+      "description": "Kabi Insurance",
+      "amount": 150,
+      "frequency": "annually",
+      "nextDue": "2025-01-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 7,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "3df367c4-6848-4639-a519-48af2c898470",
+      "description": "Holidays",
+      "amount": 2000,
+      "frequency": "annually",
+      "nextDue": "2025-01-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 3,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "a42f8cb7-0350-4a8b-b96d-139c6f817a2a",
+      "description": "Yaris Insurance",
+      "amount": 455,
+      "frequency": "annually",
+      "nextDue": "2025-01-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "e960eda0-43aa-4e3c-81f3-3b523e1cd4c1",
+      "description": "Yaris Registration",
+      "amount": 700,
+      "frequency": "annually",
+      "nextDue": "2025-01-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "73c30249-b6b2-4a7e-b741-8d136eda5516",
+      "description": "Mada Registration",
+      "amount": 700,
+      "frequency": "annually",
+      "nextDue": "2025-01-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "2070c01a-1c40-4eb9-a194-59f6ebd2b02d",
+      "description": "Raiz Investing",
+      "amount": 40,
+      "frequency": "weekly",
+      "nextDue": "2025-06-16",
+      "applyFuzziness": 0,
+      "notes": "Managed share investment",
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "b86133c3-2dc8-41ae-8c0e-4eb8eba4942c",
+      "description": "Electricity",
+      "amount": 105,
+      "frequency": "monthly",
+      "nextDue": "2025-06-01",
+      "applyFuzziness": 0,
+      "notes": "Formby St",
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "ee6db2f3-8a9d-40d9-a4c0-bfd0daedf894",
+      "description": "Mazda Insurance",
+      "amount": 907,
+      "frequency": "annually",
+      "nextDue": "2025-01-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "b4500ef0-1306-48b0-bd1e-6eed57348ed0",
+      "description": "Luke Phone",
+      "amount": 15,
+      "frequency": "monthly",
+      "nextDue": "2025-06-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "a35097b3-fb1f-498f-8d39-c32b0b15875b",
+      "description": "Marina Phone",
+      "amount": 15,
+      "frequency": "monthly",
+      "nextDue": "2025-06-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "e003c414-09b9-4e52-9a65-61df2453c087",
+      "description": "Luke Go Card",
+      "amount": 15,
+      "frequency": "monthly",
+      "nextDue": "2025-06-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "c95c645c-a825-4545-9fb0-a65e20aeaa06",
+      "description": "Marina Go Card",
+      "amount": 15,
+      "frequency": "monthly",
+      "nextDue": "2025-06-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "ddab8a89-44ed-4a4a-ad32-5e345220eb81",
+      "description": "Luke Fuel",
+      "amount": 30,
+      "frequency": "weekly",
+      "nextDue": "2025-06-16",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 8,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "0dbb1f00-6757-4406-9d4d-82b572f41967",
+      "description": "Marina Fuel",
+      "amount": 50,
+      "frequency": "weekly",
+      "nextDue": "2025-06-16",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 8,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "796f8d03-5f74-41dd-8593-1d6692b449fe",
+      "description": "Wedding",
+      "amount": 230,
+      "frequency": "weekly",
+      "nextDue": "2025-06-20",
+      "applyFuzziness": 0,
+      "notes": "Paid into Home Loan",
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "206f70ae-4070-4ae8-bc30-86f96b2a662d",
+      "description": "Weekly Expenses",
+      "amount": 420,
+      "frequency": "weekly",
+      "nextDue": "2025-06-16",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 8,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "7966f0ca-c421-4413-9d16-b3b0617bbcda",
+      "description": "Kabi Loan",
+      "amount": 1822,
+      "frequency": "monthly",
+      "nextDue": "2025-06-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 9,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "b43cc5c7-c756-41c5-a464-1ae941a13570",
+      "description": "Luke Expenses",
+      "amount": 75,
+      "frequency": "weekly",
+      "nextDue": "2025-06-16",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 10,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "8e9695d4-c589-4b04-bb3c-76f42b0a9cf5",
+      "description": "Marina Expenses",
+      "amount": 75,
+      "frequency": "weekly",
+      "nextDue": "2025-06-16",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 11,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "f076dffd-f332-4e16-86c7-905bed7648cc",
+      "description": "House Insurance",
+      "amount": 408,
+      "frequency": "annually",
+      "nextDue": "2025-01-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "996b6644-83fe-4b4b-972e-f2c274b4120d",
+      "description": "Kabi Slush",
+      "amount": 50,
+      "frequency": "weekly",
+      "nextDue": "2025-06-16",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 12,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "1e0abc97-7c43-499b-9535-f3796a0da066",
+      "description": "Marina Family",
+      "amount": 1050,
+      "frequency": "annually",
+      "nextDue": "2025-01-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 4,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "efe39c26-97a4-457b-bc9e-9991a0927980",
+      "description": "Luke Health Insurance",
+      "amount": 138,
+      "frequency": "biweekly",
+      "nextDue": "2025-06-16",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "237a3128-827f-426d-9680-5c6345eb32f9",
+      "description": "Marina Health Insurance",
+      "amount": 200,
+      "frequency": "biweekly",
+      "nextDue": "2025-06-16",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "a46d7ac3-abb0-41f5-9d2c-d01ca1ed1856",
+      "description": "SSAA",
+      "amount": 115,
+      "frequency": "annually",
+      "nextDue": "2025-01-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "150878e2-a9e5-4a51-9aa6-07a73de750e1",
+      "description": "Last Pass",
+      "amount": 60,
+      "frequency": "annually",
+      "nextDue": "2025-01-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "3d8d6339-4799-4f99-86e2-4e3aa0b456dc",
+      "description": "Spotify",
+      "amount": 13,
+      "frequency": "monthly",
+      "nextDue": "2025-06-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "9cc7e077-fc31-4352-97e4-9b265bfa7749",
+      "description": "Amazon Prime",
+      "amount": 10,
+      "frequency": "monthly",
+      "nextDue": "2025-06-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "61ee592f-ace2-4187-ba99-02a622440326",
+      "description": "Gym",
+      "amount": 20,
+      "frequency": "weekly",
+      "nextDue": "2025-06-16",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "66cfec1e-6c09-4174-9821-94957c061bed",
+      "description": "Patreon",
+      "amount": 13,
+      "frequency": "monthly",
+      "nextDue": "2025-06-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "079bee02-88be-4d21-ac51-409f556b1faf",
+      "description": "YouTube Premium",
+      "amount": 17,
+      "frequency": "monthly",
+      "nextDue": "2025-06-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "ab4660c4-9270-4c62-b9c4-1ef86f4e447f",
+      "description": "Wordpress",
+      "amount": 66,
+      "frequency": "annually",
+      "nextDue": "2025-01-01",
+      "applyFuzziness": 0,
+      "notes": "Travel Blog",
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "fae86696-eb97-45d5-9ea9-8b81ca923de3",
+      "description": "Cloudflare",
+      "amount": 10,
+      "frequency": "annually",
+      "nextDue": "2025-01-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "db8c1e0c-03f5-485b-a3be-41c23f319006",
+      "description": "RACQ",
+      "amount": 121,
+      "frequency": "annually",
+      "nextDue": "2025-01-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "b8600b17-9aaa-484c-b75d-fd220e7803c8",
+      "description": "Internet",
+      "amount": 89,
+      "frequency": "monthly",
+      "nextDue": "2025-06-01",
+      "applyFuzziness": 0,
+      "notes": "Formby St",
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "cc304441-50f6-4c94-a2e7-935da2280d5f",
+      "description": "Linkt",
+      "amount": 10,
+      "frequency": "weekly",
+      "nextDue": "2025-06-16",
+      "applyFuzziness": 0,
+      "notes": "Tolls",
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "c8ecc259-c34f-46f3-9770-956c7bc54bee",
+      "description": "PIA",
+      "amount": 105,
+      "frequency": "annually",
+      "nextDue": "2025-01-01",
+      "applyFuzziness": 0,
+      "notes": null,
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": "9798e20c-c25f-4ca5-8a80-625bb1485f96",
+      "description": "Fishing Points App",
+      "amount": 30,
+      "frequency": "annually",
+      "nextDue": "2025-06-01",
+      "applyFuzziness": 0,
+      "notes": "App to save caught fish locations",
+      "accountId": 1,
+      "user_id": 1,
+      "version_id": 1
+    }
+  ],
+  "tags": [
+    {
+      "id": 2,
+      "name": "Kabi",
+      "color": null,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": 3,
+      "name": "Home",
+      "color": "#e64a19",
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": 4,
+      "name": "Holidays",
+      "color": null,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": 5,
+      "name": "Home Loan",
+      "color": null,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": 6,
+      "name": "Kabi Loan",
+      "color": null,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": 7,
+      "name": "Cars",
+      "color": null,
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": 9,
+      "name": "Investing",
+      "color": "#0097a7",
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": 12,
+      "name": "Living Expenses",
+      "color": "#d32f2f",
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": 18,
+      "name": "Wedding",
+      "color": "#ffb300",
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": 25,
+      "name": "Family",
+      "color": "#455a64",
+      "user_id": 1,
+      "version_id": 1
+    },
+    {
+      "id": 28,
+      "name": "Subscription",
+      "color": null,
+      "user_id": 1,
+      "version_id": 1
+    }
+  ],
+  "settings": [
+    {
+      "id": 23,
+      "user_id": 1,
+      "version_id": 1,
+      "key": "frequency",
+      "value": "monthly"
+    },
+    {
+      "id": 17,
+      "user_id": 1,
+      "version_id": 1,
+      "key": "showAccountsPage",
+      "value": "false"
+    },
+    {
+      "id": 15,
+      "user_id": 1,
+      "version_id": 1,
+      "key": "showPlanningPage",
+      "value": "false"
+    },
+    {
+      "id": 16,
+      "user_id": 1,
+      "version_id": 1,
+      "key": "showSchedulePage",
+      "value": "false"
+    }
+  ]
+}

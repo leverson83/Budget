@@ -235,6 +235,11 @@ const db = new sqlite3.Database(path.join(__dirname, 'budget.db'), (err) => {
 
 // Function to create sample data for a user
 function createSampleDataForUser(userId) {
+  console.log(`Creating sample data for user ID: ${userId}`);
+  
+  // Import the real sample data
+  const sampleData = require('./sample-data.json');
+  
   db.serialize(() => {
     // Create default version
     db.run(
@@ -258,91 +263,50 @@ function createSampleDataForUser(userId) {
           }
         });
 
-        // Create sample accounts
-        const sampleAccounts = [
-          ['Primary Account', 'Commonwealth Bank', 5000, 1000, 1, 4000],
-          ['Savings Account', 'ANZ', 15000, 5000, 0, 10000],
-          ['Investment Account', 'Westpac', 25000, 0, 0, 25000]
-        ];
-        
-        sampleAccounts.forEach(([name, bank, currentBalance, requiredBalance, isPrimary, diff]) => {
+        // Create accounts from sample data
+        sampleData.accounts.forEach(account => {
           db.run(
             'INSERT INTO accounts (user_id, version_id, name, bank, currentBalance, requiredBalance, isPrimary, diff) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [userId, versionId, name, bank, currentBalance, requiredBalance, isPrimary, diff]
+            [userId, versionId, account.name, account.bank, account.currentBalance, account.requiredBalance, account.isPrimary, account.diff]
           );
         });
+        console.log(`Created ${sampleData.accounts.length} accounts`);
 
-        // Create sample income
-        const sampleIncome = [
-          ['Salary', 5000, 'monthly', '2024-01-15'],
-          ['Freelance Work', 2000, 'monthly', '2024-01-20'],
-          ['Investment Dividends', 500, 'quarterly', '2024-03-31']
-        ];
-        
-        sampleIncome.forEach(([description, amount, frequency, nextDue]) => {
+        // Create income from sample data
+        sampleData.income.forEach(income => {
           db.run(
-            'INSERT INTO income (id, user_id, version_id, description, amount, frequency, nextDue, applyFuzziness) VALUES (?, ?, ?, ?, ?, ?, ?, 0)',
-            [`income_${Date.now()}_${Math.random()}`, userId, versionId, description, amount, frequency, nextDue]
+            'INSERT INTO income (id, user_id, version_id, description, amount, frequency, nextDue, applyFuzziness) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [income.id, userId, versionId, income.description, income.amount, income.frequency, income.nextDue, income.applyFuzziness]
           );
         });
+        console.log(`Created ${sampleData.income.length} income items`);
 
-        // Create sample expenses
-        const sampleExpenses = [
-          ['Rent', 2000, 'monthly', '2024-01-01'],
-          ['Groceries', 400, 'weekly', '2024-01-07'],
-          ['Electricity', 150, 'monthly', '2024-01-15'],
-          ['Internet', 80, 'monthly', '2024-01-10'],
-          ['Phone Bill', 60, 'monthly', '2024-01-05'],
-          ['Car Insurance', 1200, 'annually', '2024-06-01'],
-          ['Gym Membership', 50, 'monthly', '2024-01-01'],
-          ['Netflix', 15, 'monthly', '2024-01-01']
-        ];
-        
-        sampleExpenses.forEach(([description, amount, frequency, nextDue]) => {
+        // Create expenses from sample data
+        sampleData.expenses.forEach(expense => {
           db.run(
-            'INSERT INTO expenses (id, user_id, version_id, description, amount, frequency, nextDue, applyFuzziness) VALUES (?, ?, ?, ?, ?, ?, ?, 0)',
-            [`expense_${Date.now()}_${Math.random()}`, userId, versionId, description, amount, frequency, nextDue]
+            'INSERT INTO expenses (id, user_id, version_id, description, amount, frequency, nextDue, applyFuzziness, notes, accountId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [expense.id, userId, versionId, expense.description, expense.amount, expense.frequency, expense.nextDue, expense.applyFuzziness, expense.notes, expense.accountId]
           );
         });
+        console.log(`Created ${sampleData.expenses.length} expenses`);
 
-        // Create sample tags
-        const sampleTags = [
-          ['Housing', '#1976d2'],
-          ['Food', '#4caf50'],
-          ['Utilities', '#ff9800'],
-          ['Transport', '#9c27b0'],
-          ['Entertainment', '#f44336'],
-          ['Insurance', '#607d8b']
-        ];
-        
-        sampleTags.forEach(([name, color]) => {
+        // Create tags from sample data
+        sampleData.tags.forEach(tag => {
           db.run(
             'INSERT INTO tags (user_id, version_id, name, color) VALUES (?, ?, ?, ?)',
-            [userId, versionId, name, color]
+            [userId, versionId, tag.name, tag.color]
           );
         });
+        console.log(`Created ${sampleData.tags.length} tags`);
 
-        // Create default settings
-        const defaultSettings = [
-          ['showPlanningPage', true],
-          ['showSchedulePage', true],
-          ['showAccountsPage', true],
-          ['fuzziness', JSON.stringify({
-            weekly: 1,
-            fortnightly: 1,
-            monthly: 1,
-            quarterly: 1,
-            yearly: 1
-          })],
-          ['ignoreWeekends', false],
-          ['frequency', 'monthly']
-        ];
-        
-        const stmt = db.prepare('INSERT OR REPLACE INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)');
-        defaultSettings.forEach(([key, value]) => {
-          stmt.run(userId, versionId, key, value);
+        // Create settings from sample data
+        sampleData.settings.forEach(setting => {
+          db.run(
+            'INSERT INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)',
+            [userId, versionId, setting.key, setting.value]
+          );
         });
-        stmt.finalize();
+        console.log(`Created ${sampleData.settings.length} settings`);
         
         console.log(`Sample data created for user ${userId}`);
       }
