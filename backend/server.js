@@ -22,7 +22,7 @@ const JWT_SECRET = process.env.JWT_SECRET || (() => {
 
 // Middleware
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' ? false : 'http://localhost:3000',
+  origin: process.env.NODE_ENV === 'production' ? true : 'http://localhost:3000',
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
@@ -59,8 +59,8 @@ const db = new sqlite3.Database(path.join(__dirname, 'budget.db'), (err) => {
         } else {
           // Insert initial users if they don't exist
           db.run(`
-            INSERT OR IGNORE INTO users (name, email) 
-            VALUES ('Luke', 'leverson83@gmail.com')
+            INSERT OR IGNORE INTO users (name, email, admin) 
+            VALUES ('Luke', 'leverson83@gmail.com', 1)
           `);
           db.run(`
             INSERT OR IGNORE INTO users (name, email) 
@@ -304,6 +304,51 @@ app.post('/api/auth/login', (req, res) => {
             }
           }
         );
+      } else {
+        // User has no default version, create one
+        console.log(`Creating default version for user ${user.email}...`);
+        db.run(
+          'INSERT INTO budget_versions (user_id, name, description, is_active) VALUES (?, ?, ?, 1)',
+          [user.id, 'Default', 'Default budget version', 1],
+          function(err) {
+            if (err) {
+              console.error('Error creating default version:', err);
+            } else {
+              const versionId = this.lastID;
+              console.log(`Created default version (ID: ${versionId}) for user ${user.email}`);
+              
+              // Set as default version
+              db.run('UPDATE users SET default_version_id = ? WHERE id = ?', [versionId, user.id], (err) => {
+                if (err) {
+                  console.error('Error setting default version:', err);
+                } else {
+                  console.log(`Set default version ${versionId} for user ${user.email}`);
+                }
+              });
+
+              // Create default settings
+              const defaultSettings = [
+                ['showPlanningPage', false],
+                ['showSchedulePage', false],
+                ['showAccountsPage', false],
+                ['fuzziness', JSON.stringify({
+                  weekly: 1,
+                  fortnightly: 1,
+                  monthly: 1,
+                  quarterly: 1,
+                  yearly: 1
+                })],
+                ['ignoreWeekends', false],
+                ['frequency', 'monthly']
+              ];
+              const stmt = db.prepare('INSERT OR REPLACE INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)');
+              defaultSettings.forEach(([key, value]) => {
+                stmt.run(user.id, versionId, key, value);
+              });
+              stmt.finalize();
+            }
+          }
+        );
       }
 
       res.json({ 
@@ -346,7 +391,7 @@ app.post('/api/auth/set-password', (req, res) => {
         }
 
         // Get user details for JWT token
-        db.get('SELECT id, name FROM users WHERE email = ?', [email], (err, user) => {
+        db.get('SELECT id, name, email, admin FROM users WHERE email = ?', [email], (err, user) => {
           if (err) {
             console.error('Error getting user details:', err);
             return res.status(500).json({ error: 'Database error' });
@@ -359,9 +404,92 @@ app.post('/api/auth/set-password', (req, res) => {
             { expiresIn: '24h' }
           );
 
-          res.json({ 
-            message: 'Password set successfully',
-            token
+          // Check if user has a default version and activate it
+          db.get('SELECT default_version_id FROM users WHERE id = ?', [user.id], (err, userRow) => {
+            if (err) {
+              console.error('Error checking default version:', err);
+              // Still return the response even if there's an error checking default version
+              res.json({ 
+                token, 
+                user: { id: user.id, name: user.name, email: user.email, admin: !!user.admin },
+                message: 'Password set successfully and logged in'
+              });
+              return;
+            }
+
+            if (userRow && userRow.default_version_id) {
+              // Activate the default version
+              db.run(
+                'UPDATE budget_versions SET is_active = 0 WHERE user_id = ?',
+                [user.id],
+                (err) => {
+                  if (err) {
+                    console.error('Error deactivating other versions:', err);
+                  } else {
+                    db.run(
+                      'UPDATE budget_versions SET is_active = 1 WHERE id = ? AND user_id = ?',
+                      [userRow.default_version_id, user.id],
+                      (err) => {
+                        if (err) {
+                          console.error('Error activating default version:', err);
+                        }
+                      }
+                    );
+                  }
+                }
+              );
+            } else {
+              // User has no default version, create one
+              console.log(`Creating default version for user ${user.email}...`);
+              db.run(
+                'INSERT INTO budget_versions (user_id, name, description, is_active) VALUES (?, ?, ?, 1)',
+                [user.id, 'Default', 'Default budget version', 1],
+                function(err) {
+                  if (err) {
+                    console.error('Error creating default version:', err);
+                  } else {
+                    const versionId = this.lastID;
+                    console.log(`Created default version (ID: ${versionId}) for user ${user.email}`);
+                    
+                    // Set as default version
+                    db.run('UPDATE users SET default_version_id = ? WHERE id = ?', [versionId, user.id], (err) => {
+                      if (err) {
+                        console.error('Error setting default version:', err);
+                      } else {
+                        console.log(`Set default version ${versionId} for user ${user.email}`);
+                      }
+                    });
+
+                    // Create default settings
+                    const defaultSettings = [
+                      ['showPlanningPage', false],
+                      ['showSchedulePage', false],
+                      ['showAccountsPage', false],
+                      ['fuzziness', JSON.stringify({
+                        weekly: 1,
+                        fortnightly: 1,
+                        monthly: 1,
+                        quarterly: 1,
+                        yearly: 1
+                      })],
+                      ['ignoreWeekends', false],
+                      ['frequency', 'monthly']
+                    ];
+                    const stmt = db.prepare('INSERT OR REPLACE INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)');
+                    defaultSettings.forEach(([key, value]) => {
+                      stmt.run(user.id, versionId, key, value);
+                    });
+                    stmt.finalize();
+                  }
+                }
+              );
+            }
+
+            res.json({ 
+              token, 
+              user: { id: user.id, name: user.name, email: user.email, admin: !!user.admin },
+              message: 'Password set successfully and logged in'
+            });
           });
         });
       }
@@ -446,6 +574,51 @@ app.post('/api/auth/register', (req, res) => {
                             }
                           }
                         );
+                      }
+                    }
+                  );
+                } else {
+                  // User has no default version, create one
+                  console.log(`Creating default version for user ${existingUser.email}...`);
+                  db.run(
+                    'INSERT INTO budget_versions (user_id, name, description, is_active) VALUES (?, ?, ?, 1)',
+                    [existingUser.id, 'Default', 'Default budget version', 1],
+                    function(err) {
+                      if (err) {
+                        console.error('Error creating default version:', err);
+                      } else {
+                        const versionId = this.lastID;
+                        console.log(`Created default version (ID: ${versionId}) for user ${existingUser.email}`);
+                        
+                        // Set as default version
+                        db.run('UPDATE users SET default_version_id = ? WHERE id = ?', [versionId, existingUser.id], (err) => {
+                          if (err) {
+                            console.error('Error setting default version:', err);
+                          } else {
+                            console.log(`Set default version ${versionId} for user ${existingUser.email}`);
+                          }
+                        });
+
+                        // Create default settings
+                        const defaultSettings = [
+                          ['showPlanningPage', false],
+                          ['showSchedulePage', false],
+                          ['showAccountsPage', false],
+                          ['fuzziness', JSON.stringify({
+                            weekly: 1,
+                            fortnightly: 1,
+                            monthly: 1,
+                            quarterly: 1,
+                            yearly: 1
+                          })],
+                          ['ignoreWeekends', false],
+                          ['frequency', 'monthly']
+                        ];
+                        const stmt = db.prepare('INSERT OR REPLACE INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)');
+                        defaultSettings.forEach(([key, value]) => {
+                          stmt.run(existingUser.id, versionId, key, value);
+                        });
+                        stmt.finalize();
                       }
                     }
                   );
