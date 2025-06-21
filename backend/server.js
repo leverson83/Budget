@@ -237,6 +237,23 @@ const db = new sqlite3.Database(path.join(__dirname, 'budget.db'), (err) => {
 function createSampleDataForUser(userId) {
   console.log(`Creating sample data for user ID: ${userId}`);
   
+  // Set initial password for the user
+  bcrypt.hash('admin123', 10, (err, hash) => {
+    if (err) {
+      console.error('Error hashing password:', err);
+    } else {
+      db.run('UPDATE users SET password_hash = ? WHERE id = ?', [hash, userId], (err) => {
+        if (err) {
+          console.error('Error setting password:', err);
+        } else {
+          console.log('✅ Initial password set for leverson83@gmail.com');
+          console.log('📧 Email: leverson83@gmail.com');
+          console.log('🔑 Password: admin123');
+        }
+      });
+    }
+  });
+  
   // Import the real sample data
   const sampleData = require('./sample-data.json');
   
