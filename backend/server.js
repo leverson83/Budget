@@ -71,10 +71,33 @@ const db = new sqlite3.Database(path.join(__dirname, 'budget.db'), (err) => {
                 createSampleDataForUser(this.lastID);
               } else {
                 // User already exists, check if they have a default version
-                db.get('SELECT id, default_version_id FROM users WHERE email = ?', ['leverson83@gmail.com'], (err, user) => {
-                  if (!err && user && !user.default_version_id) {
-                    console.log('Creating default version for existing user leverson83@gmail.com...');
-                    createDefaultVersionForUser(user.id);
+                db.get('SELECT id, default_version_id, password_hash FROM users WHERE email = ?', ['leverson83@gmail.com'], (err, user) => {
+                  if (!err && user) {
+                    // Check if user needs a password
+                    if (!user.password_hash) {
+                      console.log('Setting initial password for leverson83@gmail.com...');
+                      bcrypt.hash('admin123', 10, (err, hash) => {
+                        if (err) {
+                          console.error('Error hashing password:', err);
+                        } else {
+                          db.run('UPDATE users SET password_hash = ? WHERE id = ?', [hash, user.id], (err) => {
+                            if (err) {
+                              console.error('Error setting password:', err);
+                            } else {
+                              console.log('✅ Initial password set for leverson83@gmail.com');
+                              console.log('📧 Email: leverson83@gmail.com');
+                              console.log('🔑 Password: admin123');
+                            }
+                          });
+                        }
+                      });
+                    }
+                    
+                    // Check if user needs a default version
+                    if (!user.default_version_id) {
+                      console.log('Creating default version for existing user leverson83@gmail.com...');
+                      createDefaultVersionForUser(user.id);
+                    }
                   }
                 });
               }
