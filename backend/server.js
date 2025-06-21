@@ -9,7 +9,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 const app = express();
-const port = 3001;
+const port = process.env.PORT || 8585;
 
 // JWT secret key from environment variable, with fallback
 const JWT_SECRET = process.env.JWT_SECRET || (() => {

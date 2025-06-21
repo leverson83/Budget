@@ -417,9 +417,9 @@ const Dashboard = () => {
   const [showAuditCompleteDialog, setShowAuditCompleteDialog] = useState(false);
   const navigate = useNavigate();
 
-  const fetchData = async () => {
-    setLoading(true);
-    try {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
       const [incomesRes, expensesRes, accountsRes, tagsRes] = await Promise.all([
         apiCall('/income'),
         apiCall('/expenses'),
@@ -445,10 +445,10 @@ const Dashboard = () => {
     } catch (err) {
       console.error('Error fetching data:', err);
       setError(err instanceof Error ? err.message : 'Failed to load data. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
+      } finally {
+        setLoading(false);
+      }
+    };
 
   useEffect(() => {
     fetchData();
