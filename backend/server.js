@@ -1784,4 +1784,7 @@ app.use((err, req, res, next) => {
 // Start server
 app.listen(port, () => {
   console.log(`Server running at http://localhost:${port}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`JWT Secret: ${JWT_SECRET ? 'Set' : 'Not set'}`);
+  console.log(`Database path: ${path.join(__dirname, 'budget.db')}`);
 }); 

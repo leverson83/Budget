@@ -61,15 +61,19 @@ RUN cd backend && npm ci --only=production
 RUN mkdir -p /app/backend/data && \
     chown -R nodejs:nodejs /app
 
+# Create an empty database file to ensure it exists
+RUN touch /app/backend/budget.db && \
+    chown nodejs:nodejs /app/backend/budget.db
+
 # Switch to non-root user
 USER nodejs
 
 # Expose port
-EXPOSE 3001
+EXPOSE 8585
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3001/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })" || exit 1
+  CMD node -e "require('http').get('http://localhost:8585/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })" || exit 1
 
 # Start the application
 ENTRYPOINT ["dumb-init", "--"]
