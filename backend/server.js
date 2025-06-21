@@ -388,10 +388,83 @@ app.post('/api/auth/register', (req, res) => {
     }
 
     if (existingUser) {
-      return res.status(409).json({ error: 'User with this email already exists' });
+      // Check if the existing user has a password set
+      if (existingUser.password_hash) {
+        return res.status(409).json({ error: 'User with this email already exists' });
+      } else {
+        // User exists but has no password, set the password and log them in
+        bcrypt.hash(password, 10, (err, hash) => {
+          if (err) {
+            console.error('Error hashing password:', err);
+            return res.status(500).json({ error: 'Error setting password' });
+          }
+
+          db.run(
+            'UPDATE users SET password_hash = ?, is_initialized = 1 WHERE email = ?',
+            [hash, email],
+            function(err) {
+              if (err) {
+                console.error('Error updating user password:', err);
+                return res.status(500).json({ error: 'Database error' });
+              }
+
+              // Generate JWT token
+              const token = jwt.sign(
+                { userId: existingUser.id, email, name: existingUser.name },
+                JWT_SECRET,
+                { expiresIn: '24h' }
+              );
+
+              // Check if user has a default version and activate it
+              db.get('SELECT default_version_id FROM users WHERE id = ?', [existingUser.id], (err, userRow) => {
+                if (err) {
+                  console.error('Error checking default version:', err);
+                  // Still return the response even if there's an error checking default version
+                  res.json({ 
+                    token, 
+                    user: { id: existingUser.id, name: existingUser.name, email: existingUser.email, admin: !!existingUser.admin },
+                    message: 'Password set successfully and logged in'
+                  });
+                  return;
+                }
+
+                if (userRow && userRow.default_version_id) {
+                  // Activate the default version
+                  db.run(
+                    'UPDATE budget_versions SET is_active = 0 WHERE user_id = ?',
+                    [existingUser.id],
+                    (err) => {
+                      if (err) {
+                        console.error('Error deactivating other versions:', err);
+                      } else {
+                        db.run(
+                          'UPDATE budget_versions SET is_active = 1 WHERE id = ? AND user_id = ?',
+                          [userRow.default_version_id, existingUser.id],
+                          (err) => {
+                            if (err) {
+                              console.error('Error activating default version:', err);
+                            }
+                          }
+                        );
+                      }
+                    }
+                  );
+                }
+
+                res.json({ 
+                  token, 
+                  user: { id: existingUser.id, name: existingUser.name, email: existingUser.email, admin: !!existingUser.admin },
+                  message: 'Password set successfully and logged in'
+                });
+              });
+            }
+          );
+        });
+        return;
+      }
     }
 
-    // Hash password and create user
+    // User doesn't exist, create new user
     bcrypt.hash(password, 10, (err, hash) => {
       if (err) {
         console.error('Error hashing password:', err);
@@ -450,9 +523,9 @@ app.post('/api/auth/register', (req, res) => {
               );
 
               res.json({ 
-                message: 'Account created successfully',
-                token,
-                user: { id: userId, name, email }
+                token, 
+                user: { id: userId, name, email, admin: false },
+                message: 'Account created successfully'
               });
             }
           );
