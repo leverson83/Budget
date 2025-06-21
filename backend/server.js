@@ -61,7 +61,25 @@ const db = new sqlite3.Database(path.join(__dirname, 'budget.db'), (err) => {
           db.run(`
             INSERT OR IGNORE INTO users (name, email, admin) 
             VALUES ('Luke', 'leverson83@gmail.com', 1)
-          `);
+          `, function(err) {
+            if (err) {
+              console.error('Error creating user:', err);
+            } else {
+              // If user was created (this.changes > 0), create sample data
+              if (this.changes > 0) {
+                console.log('Creating sample data for leverson83@gmail.com...');
+                createSampleDataForUser(this.lastID);
+              } else {
+                // User already exists, check if they have a default version
+                db.get('SELECT id, default_version_id FROM users WHERE email = ?', ['leverson83@gmail.com'], (err, user) => {
+                  if (!err && user && !user.default_version_id) {
+                    console.log('Creating default version for existing user leverson83@gmail.com...');
+                    createDefaultVersionForUser(user.id);
+                  }
+                });
+              }
+            }
+          });
           db.run(`
             INSERT OR IGNORE INTO users (name, email) 
             VALUES ('Marina', 'marinahu1990@hotmail.com')
@@ -191,6 +209,173 @@ const db = new sqlite3.Database(path.join(__dirname, 'budget.db'), (err) => {
     });
   }
 });
+
+// Function to create sample data for a user
+function createSampleDataForUser(userId) {
+  db.serialize(() => {
+    // Create default version
+    db.run(
+      'INSERT INTO budget_versions (user_id, name, description, is_active) VALUES (?, ?, ?, 1)',
+      [userId, 'Default', 'Default budget version with sample data', 1],
+      function(err) {
+        if (err) {
+          console.error('Error creating default version:', err);
+          return;
+        }
+        
+        const versionId = this.lastID;
+        console.log(`Created default version (ID: ${versionId}) for user ${userId}`);
+        
+        // Set as default version
+        db.run('UPDATE users SET default_version_id = ? WHERE id = ?', [versionId, userId], (err) => {
+          if (err) {
+            console.error('Error setting default version:', err);
+          } else {
+            console.log(`Set default version ${versionId} for user ${userId}`);
+          }
+        });
+
+        // Create sample accounts
+        const sampleAccounts = [
+          ['Primary Account', 'Commonwealth Bank', 5000, 1000, 1, 4000],
+          ['Savings Account', 'ANZ', 15000, 5000, 0, 10000],
+          ['Investment Account', 'Westpac', 25000, 0, 0, 25000]
+        ];
+        
+        sampleAccounts.forEach(([name, bank, currentBalance, requiredBalance, isPrimary, diff]) => {
+          db.run(
+            'INSERT INTO accounts (user_id, version_id, name, bank, currentBalance, requiredBalance, isPrimary, diff) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [userId, versionId, name, bank, currentBalance, requiredBalance, isPrimary, diff]
+          );
+        });
+
+        // Create sample income
+        const sampleIncome = [
+          ['Salary', 5000, 'monthly', '2024-01-15'],
+          ['Freelance Work', 2000, 'monthly', '2024-01-20'],
+          ['Investment Dividends', 500, 'quarterly', '2024-03-31']
+        ];
+        
+        sampleIncome.forEach(([description, amount, frequency, nextDue]) => {
+          db.run(
+            'INSERT INTO income (id, user_id, version_id, description, amount, frequency, nextDue, applyFuzziness) VALUES (?, ?, ?, ?, ?, ?, ?, 0)',
+            [`income_${Date.now()}_${Math.random()}`, userId, versionId, description, amount, frequency, nextDue]
+          );
+        });
+
+        // Create sample expenses
+        const sampleExpenses = [
+          ['Rent', 2000, 'monthly', '2024-01-01'],
+          ['Groceries', 400, 'weekly', '2024-01-07'],
+          ['Electricity', 150, 'monthly', '2024-01-15'],
+          ['Internet', 80, 'monthly', '2024-01-10'],
+          ['Phone Bill', 60, 'monthly', '2024-01-05'],
+          ['Car Insurance', 1200, 'annually', '2024-06-01'],
+          ['Gym Membership', 50, 'monthly', '2024-01-01'],
+          ['Netflix', 15, 'monthly', '2024-01-01']
+        ];
+        
+        sampleExpenses.forEach(([description, amount, frequency, nextDue]) => {
+          db.run(
+            'INSERT INTO expenses (id, user_id, version_id, description, amount, frequency, nextDue, applyFuzziness) VALUES (?, ?, ?, ?, ?, ?, ?, 0)',
+            [`expense_${Date.now()}_${Math.random()}`, userId, versionId, description, amount, frequency, nextDue]
+          );
+        });
+
+        // Create sample tags
+        const sampleTags = [
+          ['Housing', '#1976d2'],
+          ['Food', '#4caf50'],
+          ['Utilities', '#ff9800'],
+          ['Transport', '#9c27b0'],
+          ['Entertainment', '#f44336'],
+          ['Insurance', '#607d8b']
+        ];
+        
+        sampleTags.forEach(([name, color]) => {
+          db.run(
+            'INSERT INTO tags (user_id, version_id, name, color) VALUES (?, ?, ?, ?)',
+            [userId, versionId, name, color]
+          );
+        });
+
+        // Create default settings
+        const defaultSettings = [
+          ['showPlanningPage', true],
+          ['showSchedulePage', true],
+          ['showAccountsPage', true],
+          ['fuzziness', JSON.stringify({
+            weekly: 1,
+            fortnightly: 1,
+            monthly: 1,
+            quarterly: 1,
+            yearly: 1
+          })],
+          ['ignoreWeekends', false],
+          ['frequency', 'monthly']
+        ];
+        
+        const stmt = db.prepare('INSERT OR REPLACE INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)');
+        defaultSettings.forEach(([key, value]) => {
+          stmt.run(userId, versionId, key, value);
+        });
+        stmt.finalize();
+        
+        console.log(`Sample data created for user ${userId}`);
+      }
+    );
+  });
+}
+
+// Function to create default version for existing user
+function createDefaultVersionForUser(userId) {
+  db.serialize(() => {
+    db.run(
+      'INSERT INTO budget_versions (user_id, name, description, is_active) VALUES (?, ?, ?, 1)',
+      [userId, 'Default', 'Default budget version', 1],
+      function(err) {
+        if (err) {
+          console.error('Error creating default version:', err);
+          return;
+        }
+        
+        const versionId = this.lastID;
+        console.log(`Created default version (ID: ${versionId}) for user ${userId}`);
+        
+        // Set as default version
+        db.run('UPDATE users SET default_version_id = ? WHERE id = ?', [versionId, userId], (err) => {
+          if (err) {
+            console.error('Error setting default version:', err);
+          } else {
+            console.log(`Set default version ${versionId} for user ${userId}`);
+          }
+        });
+
+        // Create default settings
+        const defaultSettings = [
+          ['showPlanningPage', false],
+          ['showSchedulePage', false],
+          ['showAccountsPage', false],
+          ['fuzziness', JSON.stringify({
+            weekly: 1,
+            fortnightly: 1,
+            monthly: 1,
+            quarterly: 1,
+            yearly: 1
+          })],
+          ['ignoreWeekends', false],
+          ['frequency', 'monthly']
+        ];
+        
+        const stmt = db.prepare('INSERT OR IGNORE INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)');
+        defaultSettings.forEach(([key, value]) => {
+          stmt.run(userId, versionId, key, value);
+        });
+        stmt.finalize();
+      }
+    );
+  });
+}
 
 // Authentication middleware
 const authenticateToken = (req, res, next) => {
@@ -341,7 +526,7 @@ app.post('/api/auth/login', (req, res) => {
                 ['ignoreWeekends', false],
                 ['frequency', 'monthly']
               ];
-              const stmt = db.prepare('INSERT OR REPLACE INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)');
+              const stmt = db.prepare('INSERT OR IGNORE INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)');
               defaultSettings.forEach(([key, value]) => {
                 stmt.run(user.id, versionId, key, value);
               });
@@ -475,7 +660,7 @@ app.post('/api/auth/set-password', (req, res) => {
                       ['ignoreWeekends', false],
                       ['frequency', 'monthly']
                     ];
-                    const stmt = db.prepare('INSERT OR REPLACE INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)');
+                    const stmt = db.prepare('INSERT OR IGNORE INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)');
                     defaultSettings.forEach(([key, value]) => {
                       stmt.run(user.id, versionId, key, value);
                     });
@@ -614,7 +799,7 @@ app.post('/api/auth/register', (req, res) => {
                           ['ignoreWeekends', false],
                           ['frequency', 'monthly']
                         ];
-                        const stmt = db.prepare('INSERT OR REPLACE INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)');
+                        const stmt = db.prepare('INSERT OR IGNORE INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)');
                         defaultSettings.forEach(([key, value]) => {
                           stmt.run(existingUser.id, versionId, key, value);
                         });
@@ -682,7 +867,7 @@ app.post('/api/auth/register', (req, res) => {
                 ['ignoreWeekends', false],
                 ['frequency', 'monthly']
               ];
-              const stmt = db.prepare('INSERT OR REPLACE INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)');
+              const stmt = db.prepare('INSERT OR IGNORE INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)');
               defaultSettings.forEach(([key, value]) => {
                 stmt.run(userId, versionId, key, value);
               });

@@ -35,7 +35,7 @@ const theme = createTheme({
 });
 
 const AuthenticatedApp = () => {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, login } = useAuth();
 
   if (loading) {
     return (
@@ -53,7 +53,7 @@ const AuthenticatedApp = () => {
   }
 
   if (!isAuthenticated) {
-    return <Login onLogin={useAuth().login} />;
+    return <Login onLogin={login} />;
   }
 
   return (

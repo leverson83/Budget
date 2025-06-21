@@ -20,7 +20,9 @@ export const apiCall = async (
     headers,
   });
 
-  if (response.status === 401 || response.status === 403) {
+  // Only reload on auth errors for authenticated requests (when token exists)
+  // Don't reload for login/register attempts
+  if ((response.status === 401 || response.status === 403) && token && !endpoint.includes('/auth/')) {
     // Token is invalid, redirect to login
     localStorage.removeItem('token');
     localStorage.removeItem('user');

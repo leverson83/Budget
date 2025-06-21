@@ -13,6 +13,7 @@ import {
   Divider,
   Typography,
   Avatar,
+  Tooltip,
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -25,11 +26,13 @@ import {
   Timeline as TimelineIcon,
   Logout as LogoutIcon,
   Layers as LayersIcon,
+  Lock as LockIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import VersionManager from './VersionManager';
+import PasswordChangeDialog from './PasswordChangeDialog';
 
 const Sidebar = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -40,6 +43,7 @@ const Sidebar = () => {
   const { showSchedulePage, showPlanningPage, showAccountsPage, refreshAllData } = useSettings();
   const { user, logout } = useAuth();
   const [versionManagerOpen, setVersionManagerOpen] = useState(false);
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
 
   const baseMenuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/' },
@@ -78,20 +82,50 @@ const Sidebar = () => {
       overflowX: 'hidden'
     }}>
       {/* User Info Section */}
-      <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-          <Avatar sx={{ width: 32, height: 32, mr: 1 }}>
-            {user?.name?.charAt(0) || 'U'}
-          </Avatar>
-          <Box>
-            <Typography variant="subtitle2" noWrap>
-              {user?.name || 'User'}
-            </Typography>
-            <Typography variant="caption" color="text.secondary" noWrap>
-              {user?.email || ''}
-            </Typography>
+      <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', position: 'relative' }}>
+        <Tooltip title="Click to change password" placement="right">
+          <Box 
+            sx={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              mb: 1,
+              cursor: 'pointer',
+              p: 1,
+              borderRadius: 1,
+              '&:hover': {
+                bgcolor: 'action.hover',
+              },
+            }}
+            onClick={() => setPasswordDialogOpen(true)}
+          >
+            <Avatar sx={{ width: 32, height: 32, mr: 1 }}>
+              {user?.name?.charAt(0) || 'U'}
+            </Avatar>
+            <Box sx={{ flexGrow: 1 }}>
+              <Typography variant="subtitle2" noWrap>
+                {user?.name || 'User'}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" noWrap>
+                {user?.email || ''}
+              </Typography>
+            </Box>
           </Box>
-        </Box>
+        </Tooltip>
+        <IconButton
+          size="small"
+          onClick={() => setPasswordDialogOpen(true)}
+          sx={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            color: 'text.secondary',
+            '&:hover': {
+              color: 'text.primary',
+            },
+          }}
+        >
+          <LockIcon sx={{ fontSize: 16 }} />
+        </IconButton>
       </Box>
 
       <List sx={{ flexGrow: 1 }}>
@@ -216,6 +250,11 @@ const Sidebar = () => {
         open={versionManagerOpen}
         onClose={() => setVersionManagerOpen(false)}
         onVersionChange={refreshAllData}
+      />
+      <PasswordChangeDialog
+        open={passwordDialogOpen}
+        onClose={() => setPasswordDialogOpen(false)}
+        userEmail={user?.email || ''}
       />
     </>
   );
