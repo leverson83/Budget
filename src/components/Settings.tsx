@@ -42,6 +42,7 @@ import { Add as AddIcon } from '@mui/icons-material';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { apiCall } from '../utils/api';
+import VersionManager from './VersionManager';
 
 const API_URL = 'http://localhost:3001/api';
 
@@ -124,6 +125,9 @@ const Settings = () => {
     email: '',
     admin: false,
   });
+
+  // Version manager state
+  const [versionManagerOpen, setVersionManagerOpen] = useState(false);
 
   useEffect(() => {
     fetchTags();
@@ -625,6 +629,33 @@ const Settings = () => {
             </AccordionDetails>
           </Accordion>
         </ListItem>
+
+        <ListItem>
+          <Accordion sx={{ width: '100%' }}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography variant="h6" sx={{ fontWeight: 'bold', textDecoration: 'underline' }}>
+                Budget Versions
+              </Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Box>
+                <Typography variant="h6" gutterBottom>
+                  Manage Budget Versions
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Create different versions of your budget to compare scenarios, plan for different time periods, or experiment with different financial strategies.
+                </Typography>
+                <Button
+                  variant="contained"
+                  startIcon={<AddIcon />}
+                  onClick={() => setVersionManagerOpen(true)}
+                >
+                  Manage Versions
+                </Button>
+              </Box>
+            </AccordionDetails>
+          </Accordion>
+        </ListItem>
         
         {/* Admin Section - Only visible to admin users */}
         {(() => {
@@ -991,6 +1022,20 @@ const Settings = () => {
         autoHideDuration={6000}
         onClose={() => setSnackbar({ open: false, message: '' })}
         message={snackbar.message}
+      />
+
+      {/* Version Manager */}
+      <VersionManager
+        open={versionManagerOpen}
+        onClose={() => setVersionManagerOpen(false)}
+        onVersionChange={() => {
+          // Refresh all data when version changes
+          fetchTags();
+          fetchAccounts();
+          if (user?.admin) {
+            fetchUsers();
+          }
+        }}
       />
     </Box>
   );

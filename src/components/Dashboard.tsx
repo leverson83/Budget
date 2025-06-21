@@ -6,6 +6,7 @@ import { Pie } from 'react-chartjs-2';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
 import { API_URL, type Frequency, frequencies } from '../config';
 import { useFrequency } from '../contexts/FrequencyContext';
+import { useSettings } from '../contexts/SettingsContext';
 import { apiCall } from '../utils/api';
 import { useNavigate } from 'react-router-dom';
 
@@ -400,6 +401,7 @@ const AccountTile = ({
 
 const Dashboard = () => {
   const { frequency, setFrequency } = useFrequency();
+  const { versionChangeTrigger } = useSettings();
   const [incomes, setIncomes] = useState<IncomeEntry[]>([]);
   const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -413,41 +415,49 @@ const Dashboard = () => {
   const [showAuditCompleteDialog, setShowAuditCompleteDialog] = useState(false);
   const navigate = useNavigate();
 
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const [incomesRes, expensesRes, accountsRes, tagsRes] = await Promise.all([
+        apiCall('/income'),
+        apiCall('/expenses'),
+        apiCall('/accounts'),
+        apiCall('/tags'),
+      ]);
+
+      if (!incomesRes.ok) throw new Error('Failed to fetch incomes');
+      if (!expensesRes.ok) throw new Error('Failed to fetch expenses');
+      if (!accountsRes.ok) throw new Error('Failed to fetch accounts');
+      if (!tagsRes.ok) throw new Error('Failed to fetch tags');
+
+      const incomesData = await incomesRes.json();
+      const expensesData = await expensesRes.json();
+      const accountsData = await accountsRes.json();
+      const tagsData = await tagsRes.json();
+
+      setIncomes(incomesData.map((i: any) => ({ ...i, nextDue: new Date(i.nextDue) })));
+      setExpenses(expensesData.map((e: any) => ({ ...e, nextDue: new Date(e.nextDue), tags: e.tags || [], accountId: e.accountId })));
+      setAccounts(accountsData);
+      setTags(tagsData);
+
+    } catch (err) {
+      console.error('Error fetching data:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load data. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const [incomesRes, expensesRes, accountsRes, tagsRes] = await Promise.all([
-          apiCall('/income'),
-          apiCall('/expenses'),
-          apiCall('/accounts'),
-          apiCall('/tags'),
-        ]);
-
-        if (!incomesRes.ok) throw new Error('Failed to fetch incomes');
-        if (!expensesRes.ok) throw new Error('Failed to fetch expenses');
-        if (!accountsRes.ok) throw new Error('Failed to fetch accounts');
-        if (!tagsRes.ok) throw new Error('Failed to fetch tags');
-
-        const incomesData = await incomesRes.json();
-        const expensesData = await expensesRes.json();
-        const accountsData = await accountsRes.json();
-        const tagsData = await tagsRes.json();
-
-        setIncomes(incomesData.map((i: any) => ({ ...i, nextDue: new Date(i.nextDue) })));
-        setExpenses(expensesData.map((e: any) => ({ ...e, nextDue: new Date(e.nextDue), tags: e.tags || [], accountId: e.accountId })));
-        setAccounts(accountsData);
-        setTags(tagsData);
-
-      } catch (err) {
-        console.error('Error fetching data:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load data. Please try again.');
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchData();
   }, []);
+
+  // Listen for version changes and refresh data
+  useEffect(() => {
+    if (versionChangeTrigger > 0) {
+      fetchData();
+    }
+  }, [versionChangeTrigger]);
 
   const totalIncome = calculateTotalForFrequency(incomes, frequency);
   const totalExpenses = calculateTotalForFrequency(expenses, frequency);
@@ -608,7 +618,7 @@ const Dashboard = () => {
 
   return (
     <>
-      <Box sx={{ p: 3 }}>
+    <Box sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', mb: 4, flexWrap: 'wrap', gap: 2 }}>
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
             <FormControl size="small" sx={{ minWidth: 150 }}>
@@ -639,12 +649,12 @@ const Dashboard = () => {
           )}
 
           {primaryAccount && otherAccounts.length > 0 && (
-            <Box sx={{ 
-              display: 'flex', 
+      <Box sx={{ 
+        display: 'flex', 
               justifyContent: 'center', 
               gap: 4, 
               position: 'relative', 
-              flexWrap: 'wrap',
+        flexWrap: 'wrap',
               '&::before': {
                 content: '""',
                 position: 'absolute',
@@ -688,7 +698,7 @@ const Dashboard = () => {
               })}
             </Box>
           )}
-        </Box>
+      </Box>
 
         {/* Expenses by Tag Pie Chart */}
         {expenses.length > 0 && (
@@ -808,7 +818,7 @@ const Dashboard = () => {
                       textStrokeWidth: 2
                     }
                   }
-                }}
+                }} 
               />
             </Box>
             <Typography variant="caption" sx={{ mt: 1, color: 'text.secondary', textAlign: 'center' }}>
@@ -834,7 +844,7 @@ const Dashboard = () => {
             <Box component="li" sx={{ mb: 0 }}>
               Tick the checkbox to confirm account information up to date
             </Box>
-          </Box>
+    </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setShowAuditStartDialog(false)}>Cancel</Button>

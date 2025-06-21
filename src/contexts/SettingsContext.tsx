@@ -8,6 +8,8 @@ interface SettingsContextType {
   showAccountsPage: boolean;
   updateSettings: (planning: boolean, schedule: boolean, accounts: boolean) => void;
   refreshSettings: () => void;
+  refreshAllData: () => void;
+  versionChangeTrigger: number;
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -28,6 +30,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
   const [showPlanningPage, setShowPlanningPage] = useState(true);
   const [showSchedulePage, setShowSchedulePage] = useState(true);
   const [showAccountsPage, setShowAccountsPage] = useState(true);
+  const [versionChangeTrigger, setVersionChangeTrigger] = useState(0);
 
   const fetchSettings = async () => {
     try {
@@ -69,6 +72,11 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     fetchSettings();
   };
 
+  const refreshAllData = () => {
+    // Increment the trigger to notify all components that they should refresh their data
+    setVersionChangeTrigger(prev => prev + 1);
+  };
+
   useEffect(() => {
     fetchSettings();
   }, []);
@@ -79,7 +87,9 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       showSchedulePage,
       showAccountsPage,
       updateSettings,
-      refreshSettings
+      refreshSettings,
+      refreshAllData,
+      versionChangeTrigger
     }}>
       {children}
     </SettingsContext.Provider>

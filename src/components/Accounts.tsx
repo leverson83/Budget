@@ -25,6 +25,7 @@ import {
 } from '@mui/material';
 import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import { API_URL } from '../config';
+import { useSettings } from '../contexts/SettingsContext';
 import { apiCall } from '../utils/api';
 
 interface AccountEntry {
@@ -54,6 +55,7 @@ const formatDiff = (currentBalance: number, requiredBalance: number) => {
 };
 
 const Accounts = () => {
+  const { versionChangeTrigger } = useSettings();
   const [accounts, setAccounts] = useState<AccountEntry[]>([]);
   const [open, setOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<AccountEntry | null>(null);
@@ -70,26 +72,33 @@ const Accounts = () => {
   const [accountToDelete, setAccountToDelete] = useState<number | null>(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '' });
 
-  useEffect(() => {
-    const fetchAccounts = async () => {
-      setLoading(true);
-      try {
-        const response = await apiCall('/accounts');
-        if (!response.ok) {
-          throw new Error('Failed to fetch accounts');
-        }
-        const data = await response.json();
-        setAccounts(data);
-      } catch (error) {
-        console.error('Error fetching accounts:', error);
-        setError('Failed to load accounts');
-      } finally {
-        setLoading(false);
+  const fetchAccounts = async () => {
+    setLoading(true);
+    try {
+      const response = await apiCall('/accounts');
+      if (!response.ok) {
+        throw new Error('Failed to fetch accounts');
       }
-    };
+      const data = await response.json();
+      setAccounts(data);
+    } catch (error) {
+      console.error('Error fetching accounts:', error);
+      setError('Failed to load accounts');
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchAccounts();
   }, []);
+
+  // Listen for version changes and refresh data
+  useEffect(() => {
+    if (versionChangeTrigger > 0) {
+      fetchAccounts();
+    }
+  }, [versionChangeTrigger]);
 
   const handleOpen = (account?: AccountEntry) => {
     if (account) {

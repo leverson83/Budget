@@ -40,6 +40,7 @@ import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Info as InfoIco
 import { format, addDays, addMonths, addWeeks, addYears, isAfter, isBefore } from "date-fns";
 import { API_URL, frequencies, type Frequency } from "../config";
 import { useFrequency } from '../contexts/FrequencyContext';
+import { useSettings } from '../contexts/SettingsContext';
 import { v4 as uuidv4 } from 'uuid';
 import { apiCall } from '../utils/api';
 import { useSearchParams } from 'react-router-dom';
@@ -112,6 +113,7 @@ const getFrequencyLabel = (frequency: Frequency): string => {
 
 const Expenses = () => {
   const { frequency, setFrequency } = useFrequency();
+  const { versionChangeTrigger } = useSettings();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
@@ -175,75 +177,82 @@ const Expenses = () => {
 
   const searchParams = useSearchParams()[0];
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        // Fetch expenses
-        const expensesResponse = await apiCall('/expenses');
-        if (!expensesResponse.ok) {
-          throw new Error('Failed to fetch expenses');
-        }
-        const data = await expensesResponse.json() as ExpenseResponse[];
-        const processedExpenses: Expense[] = data.map((expense) => {
-          const { isCalculated, calculatedAmounts, tags, ...rest } = expense;
-          return {
-            ...rest,
-            nextDue: new Date(expense.nextDue),
-            tags: tags || [],
-            isCalculated: Boolean(isCalculated),
-            calculatedAmounts: (calculatedAmounts ?? []) as { value: string; frequency: Frequency }[],
-          };
-        });
-        setExpenses(processedExpenses);
-
-        // Fetch accounts
-        const accountsResponse = await apiCall('/accounts');
-        if (!accountsResponse.ok) {
-          throw new Error('Failed to fetch accounts');
-        }
-        const accountsData = await accountsResponse.json();
-        setAccounts(accountsData);
-
-        // Fetch tags
-        const tagsResponse = await apiCall('/tags');
-        if (!tagsResponse.ok) {
-          throw new Error('Failed to fetch tags');
-        }
-        const tagsData = await tagsResponse.json();
-        // Extract tag names from the new format (objects with name and color)
-        const tagNames = tagsData.map((tag: { name: string; color?: string }) => tag.name);
-        setAvailableTags(tagNames);
-        
-        // Store tag colors
-        const colorsMap: { [key: string]: string } = {};
-        tagsData.forEach((tag: { name: string; color?: string }) => {
-          if (tag.color) {
-            colorsMap[tag.name] = tag.color;
-          }
-        });
-        setTagColors(colorsMap);
-
-        // Fetch saved frequency
-        const frequencyResponse = await apiCall('/settings/frequency');
-        if (!frequencyResponse.ok) {
-          console.error('Failed to fetch frequency setting');
-        }
-        const { frequency } = await frequencyResponse.json();
-        if (frequency) {
-          setFrequency(frequency);
-        }
-
-      } catch (error) {
-        console.error('Error fetching data:', error);
-        setError('Failed to load data. Please try again.');
-      } finally {
-        setLoading(false);
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      // Fetch expenses
+      const expensesResponse = await apiCall('/expenses');
+      if (!expensesResponse.ok) {
+        throw new Error('Failed to fetch expenses');
       }
-    };
+      const data = await expensesResponse.json() as ExpenseResponse[];
+      const processedExpenses: Expense[] = data.map((expense) => {
+        const { isCalculated, calculatedAmounts, tags, ...rest } = expense;
+        return {
+          ...rest,
+        nextDue: new Date(expense.nextDue),
+        tags: tags || [],
+        isCalculated: Boolean(isCalculated),
+        calculatedAmounts: (calculatedAmounts ?? []) as { value: string; frequency: Frequency }[],
+        };
+      });
+      setExpenses(processedExpenses);
 
+      // Fetch accounts
+      const accountsResponse = await apiCall('/accounts');
+      if (!accountsResponse.ok) {
+        throw new Error('Failed to fetch accounts');
+      }
+      const accountsData = await accountsResponse.json();
+      setAccounts(accountsData);
+
+      // Fetch tags
+      const tagsResponse = await apiCall('/tags');
+      if (!tagsResponse.ok) {
+        throw new Error('Failed to fetch tags');
+      }
+      const tagsData = await tagsResponse.json();
+      // Extract tag names from the new format (objects with name and color)
+      const tagNames = tagsData.map((tag: { name: string; color?: string }) => tag.name);
+      setAvailableTags(tagNames);
+      
+      // Store tag colors
+      const colorsMap: { [key: string]: string } = {};
+      tagsData.forEach((tag: { name: string; color?: string }) => {
+        if (tag.color) {
+          colorsMap[tag.name] = tag.color;
+        }
+      });
+      setTagColors(colorsMap);
+
+      // Fetch saved frequency
+      const frequencyResponse = await apiCall('/settings/frequency');
+      if (!frequencyResponse.ok) {
+        console.error('Failed to fetch frequency setting');
+      }
+      const { frequency } = await frequencyResponse.json();
+      if (frequency) {
+        setFrequency(frequency);
+      }
+
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      setError('Failed to load data. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchData();
   }, []);
+
+  // Listen for version changes and refresh data
+  useEffect(() => {
+    if (versionChangeTrigger > 0) {
+      fetchData();
+    }
+  }, [versionChangeTrigger]);
 
   useEffect(() => {
     const searchTags = searchParams.get('tags');
@@ -299,7 +308,7 @@ const Expenses = () => {
         const { isCalculated, calculatedAmounts, tags, ...rest } = expense;
         return {
           ...rest,
-          nextDue: new Date(expense.nextDue),
+        nextDue: new Date(expense.nextDue),
           tags: tags || [],
           isCalculated: Boolean(isCalculated),
           calculatedAmounts: (calculatedAmounts ?? []) as { value: string; frequency: Frequency }[],
@@ -1086,19 +1095,19 @@ const Expenses = () => {
               <TextField
                 select
                 label="Account"
-                value={formData.accountId === '' ? '' : String(formData.accountId)}
-                onChange={(e) => setFormData({ ...formData, accountId: e.target.value === '' ? '' : Number(e.target.value) })}
+                  value={formData.accountId === '' ? '' : String(formData.accountId)}
+                  onChange={(e) => setFormData({ ...formData, accountId: e.target.value === '' ? '' : Number(e.target.value) })}
                 fullWidth
                 InputLabelProps={{ shrink: true }}
-              >
-                <MenuItem value="">
-                  <em>None</em>
-                </MenuItem>
-                {accounts.map((account) => (
-                  <MenuItem key={account.id} value={String(account.id)}>
-                    {account.name} ({account.bank})
+                >
+                  <MenuItem value="">
+                    <em>None</em>
                   </MenuItem>
-                ))}
+                  {accounts.map((account) => (
+                    <MenuItem key={account.id} value={String(account.id)}>
+                      {account.name} ({account.bank})
+                    </MenuItem>
+                  ))}
               </TextField>
               <TextField
                 label="Initial Due Date"

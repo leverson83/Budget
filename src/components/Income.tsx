@@ -33,6 +33,7 @@ import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Info as InfoIco
 import { format } from 'date-fns';
 import { API_URL, frequencies, type Frequency } from '../config';
 import { useFrequency } from '../contexts/FrequencyContext';
+import { useSettings } from '../contexts/SettingsContext';
 import { v4 as uuidv4 } from 'uuid';
 import { apiCall } from '../utils/api';
 
@@ -63,6 +64,7 @@ const getFrequencyLabel = (frequency: string) => {
 
 const Income = () => {
   const { frequency, setFrequency } = useFrequency();
+  const { versionChangeTrigger } = useSettings();
   const [incomes, setIncomes] = useState<IncomeEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -88,30 +90,37 @@ const Income = () => {
     amounts: [{ value: '', frequency: frequency }],
   });
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        // Fetch incomes
-        const incomesResponse = await apiCall('/income');
-        if (!incomesResponse.ok) {
-          throw new Error('Failed to fetch incomes');
-        }
-        const incomesData = await incomesResponse.json();
-        setIncomes(incomesData.map((income: any) => ({
-          ...income,
-          nextDue: new Date(income.nextDue)
-        })));
-      } catch (error) {
-        console.error('Error fetching data:', error);
-        setError('Failed to load data. Please try again.');
-      } finally {
-        setLoading(false);
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      // Fetch incomes
+      const incomesResponse = await apiCall('/income');
+      if (!incomesResponse.ok) {
+        throw new Error('Failed to fetch incomes');
       }
-    };
+      const incomesData = await incomesResponse.json();
+      setIncomes(incomesData.map((income: any) => ({
+        ...income,
+        nextDue: new Date(income.nextDue)
+      })));
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      setError('Failed to load data. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchData();
   }, []);
+
+  // Listen for version changes and refresh data
+  useEffect(() => {
+    if (versionChangeTrigger > 0) {
+      fetchData();
+    }
+  }, [versionChangeTrigger]);
 
   const handleOpen = (income?: IncomeEntry) => {
     if (income) {
@@ -424,7 +433,7 @@ const Income = () => {
       }
 
       setIncomes(prevIncomes => [...prevIncomes, { ...newEntry, nextDue: new Date(newEntry.nextDue) }]);
-      handleCloseCalc();
+      setOpenCalc(false);
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to save calculated income');
       console.error('Error saving calculated income:', error);

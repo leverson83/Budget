@@ -24,10 +24,12 @@ import {
   AccountBalanceWallet as AccountBalanceWalletIcon,
   Timeline as TimelineIcon,
   Logout as LogoutIcon,
+  Layers as LayersIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
+import VersionManager from './VersionManager';
 
 const Sidebar = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -35,8 +37,9 @@ const Sidebar = () => {
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const navigate = useNavigate();
   const location = useLocation();
-  const { showSchedulePage, showPlanningPage, showAccountsPage } = useSettings();
+  const { showSchedulePage, showPlanningPage, showAccountsPage, refreshAllData } = useSettings();
   const { user, logout } = useAuth();
+  const [versionManagerOpen, setVersionManagerOpen] = useState(false);
 
   const baseMenuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/' },
@@ -106,6 +109,14 @@ const Sidebar = () => {
       </List>
       <Divider />
       <List>
+        <ListItem disablePadding>
+          <ListItemButton
+            onClick={() => setVersionManagerOpen(true)}
+          >
+            <ListItemIcon><LayersIcon /></ListItemIcon>
+            <ListItemText primary="Versions" />
+          </ListItemButton>
+        </ListItem>
         <ListItem disablePadding>
           <ListItemButton
             selected={location.pathname === '/settings'}
@@ -201,6 +212,11 @@ const Sidebar = () => {
           </Drawer>
         )}
       </Box>
+      <VersionManager
+        open={versionManagerOpen}
+        onClose={() => setVersionManagerOpen(false)}
+        onVersionChange={refreshAllData}
+      />
     </>
   );
 };
