@@ -208,11 +208,12 @@ const db = new sqlite3.Database(path.join(__dirname, 'budget.db'), (err) => {
       // Create expense_tags junction table
       db.run(`
         CREATE TABLE IF NOT EXISTS expense_tags (
-          expense_id TEXT,
-          tag_id INTEGER,
-          PRIMARY KEY (expense_id, tag_id),
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          expense_id TEXT NOT NULL,
+          tag_id INTEGER NOT NULL,
           FOREIGN KEY (expense_id) REFERENCES expenses(id) ON DELETE CASCADE,
-          FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+          FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE,
+          UNIQUE(expense_id, tag_id)
         )
       `);
 
@@ -228,6 +229,20 @@ const db = new sqlite3.Database(path.join(__dirname, 'budget.db'), (err) => {
           FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE,
           FOREIGN KEY (shared_with_user_id) REFERENCES users(id) ON DELETE CASCADE,
           UNIQUE(version_id, shared_with_user_id)
+        )
+      `);
+
+      // Create hidden_expenses table to track which expenses are hidden from planning
+      db.run(`
+        CREATE TABLE IF NOT EXISTS hidden_expenses (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          expense_id TEXT NOT NULL,
+          is_hidden INTEGER DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (expense_id) REFERENCES expenses(id) ON DELETE CASCADE,
+          UNIQUE(user_id, expense_id)
         )
       `);
     });
@@ -1435,20 +1450,20 @@ app.post('/api/income', authenticateToken, (req, res) => {
 
     if (!version) {
       return res.status(400).json({ error: 'No active version found. Please create a version first.' });
-    }
+  }
 
-    db.run(
+  db.run(
       'INSERT INTO income (id, user_id, version_id, description, amount, frequency, nextDue) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [id, req.user.userId, version.id, description, amount, frequency, nextDue],
-      function(err) {
-        if (err) {
-          console.error('Error creating income:', err);
-          res.status(500).json({ error: err.message });
-          return;
-        }
-        res.json({ id: this.lastID });
+    function(err) {
+      if (err) {
+        console.error('Error creating income:', err);
+        res.status(500).json({ error: err.message });
+        return;
       }
-    );
+      res.json({ id: this.lastID });
+    }
+  );
   });
 });
 
@@ -1468,13 +1483,13 @@ app.put('/api/income/:id', authenticateToken, (req, res) => {
       SELECT id FROM budget_versions WHERE user_id = ? AND is_active = 1
     )
   `, [description, amount, frequency, nextDue, id, req.user.userId, req.user.userId],
-  function(err) {
-    if (err) {
-      console.error('Error updating income:', err);
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    res.json({ changes: this.changes });
+    function(err) {
+      if (err) {
+        console.error('Error updating income:', err);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.json({ changes: this.changes });
   });
 });
 
@@ -1499,7 +1514,9 @@ app.delete('/api/income/:id', authenticateToken, (req, res) => {
 
 // Expenses endpoints
 app.get('/api/expenses', authenticateToken, (req, res) => {
-  db.all(`
+  const { includeHidden } = req.query;
+  
+  let query = `
     SELECT e.*, 
            GROUP_CONCAT(t.name) as tags,
            a.name as accountName
@@ -1509,8 +1526,25 @@ app.get('/api/expenses', authenticateToken, (req, res) => {
     LEFT JOIN accounts a ON e.accountId = a.id
     JOIN budget_versions bv ON e.version_id = bv.id
     WHERE e.user_id = ? AND bv.is_active = 1
-    GROUP BY e.id
-  `, [req.user.userId], (err, rows) => {
+  `;
+  
+  const params = [req.user.userId];
+  
+  // If not including hidden expenses, filter them out
+  if (includeHidden !== 'true') {
+    query += `
+      AND e.id NOT IN (
+        SELECT he.expense_id 
+        FROM hidden_expenses he 
+        WHERE he.user_id = ? AND he.is_hidden = 1
+      )
+    `;
+    params.push(req.user.userId);
+  }
+  
+  query += ` GROUP BY e.id`;
+  
+  db.all(query, params, (err, rows) => {
     if (err) {
       console.error('Error fetching expenses:', err);
       res.status(500).json({ error: err.message });
@@ -1548,29 +1582,29 @@ app.post('/api/expenses', authenticateToken, (req, res) => {
       return res.status(400).json({ error: 'No active version found. Please create a version first.' });
     }
 
-    db.serialize(() => {
-      db.run('BEGIN TRANSACTION');
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
 
-      // Insert expense
-      db.run(
+    // Insert expense
+    db.run(
         'INSERT INTO expenses (id, user_id, version_id, description, amount, frequency, nextDue, applyFuzziness, notes, accountId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [id, req.user.userId, version.id, description, amount, frequency, nextDue, applyFuzziness ? 1 : 0, notes || null, accountId || null],
-        function(err) {
-          if (err) {
-            console.error('Error creating expense:', err);
-            db.run('ROLLBACK');
-            res.status(500).json({ error: err.message });
-            return;
-          }
+      function(err) {
+        if (err) {
+          console.error('Error creating expense:', err);
+          db.run('ROLLBACK');
+          res.status(500).json({ error: err.message });
+          return;
+        }
 
-          // If there are tags, insert them
-          if (tags && tags.length > 0) {
-            console.log('Inserting tags:', tags);
-            let completedTags = 0;
-            const totalTags = tags.length;
-            let hasError = false;
+        // If there are tags, insert them
+        if (tags && tags.length > 0) {
+          console.log('Inserting tags:', tags);
+          let completedTags = 0;
+          const totalTags = tags.length;
+          let hasError = false;
 
-            tags.forEach(tag => {
+          tags.forEach(tag => {
               // Generate a consistent color for the tag
               const colors = [
                 '#1976d2', '#9c27b0', '#2e7d32', '#f57c00', '#c2185b', '#00838f', '#7b1fa2', '#d32f2f', '#5d4037', '#455a64',
@@ -1581,65 +1615,65 @@ app.post('/api/expenses', authenticateToken, (req, res) => {
               const color = colors[index % colors.length];
               
               db.run('INSERT OR IGNORE INTO tags (name, color, user_id, version_id) VALUES (?, ?, ?, ?)', [tag, color, req.user.userId, version.id], function(err) {
-                if (err) {
+              if (err) {
+                if (!hasError) {
+                  hasError = true;
+                  console.error('Error inserting tag:', err);
+                  db.run('ROLLBACK');
+                  res.status(500).json({ error: err.message });
+                }
+                return;
+              }
+              // Now fetch the tag ID
+                db.get('SELECT id FROM tags WHERE name = ? AND user_id = ? AND version_id = ?', [tag, req.user.userId, version.id], (err, row) => {
+                if (err || !row) {
                   if (!hasError) {
                     hasError = true;
-                    console.error('Error inserting tag:', err);
+                    console.error('Error fetching tag id:', err);
                     db.run('ROLLBACK');
-                    res.status(500).json({ error: err.message });
+                    res.status(500).json({ error: err ? err.message : 'Tag not found' });
                   }
                   return;
                 }
-                // Now fetch the tag ID
-                db.get('SELECT id FROM tags WHERE name = ? AND user_id = ? AND version_id = ?', [tag, req.user.userId, version.id], (err, row) => {
-                  if (err || !row) {
+                // Insert into expense_tags
+                db.run('INSERT INTO expense_tags (expense_id, tag_id) VALUES (?, ?)', [id, row.id], function(err) {
+                  if (err) {
                     if (!hasError) {
                       hasError = true;
-                      console.error('Error fetching tag id:', err);
+                      console.error('Error linking tag:', err);
                       db.run('ROLLBACK');
-                      res.status(500).json({ error: err ? err.message : 'Tag not found' });
+                      res.status(500).json({ error: err.message });
                     }
                     return;
                   }
-                  // Insert into expense_tags
-                  db.run('INSERT INTO expense_tags (expense_id, tag_id) VALUES (?, ?)', [id, row.id], function(err) {
-                    if (err) {
-                      if (!hasError) {
-                        hasError = true;
-                        console.error('Error linking tag:', err);
-                        db.run('ROLLBACK');
+                  completedTags++;
+                  if (completedTags === totalTags && !hasError) {
+                    db.run('COMMIT', (err) => {
+                      if (err) {
+                        console.error('Error committing transaction:', err);
                         res.status(500).json({ error: err.message });
+                        return;
                       }
-                      return;
-                    }
-                    completedTags++;
-                    if (completedTags === totalTags && !hasError) {
-                      db.run('COMMIT', (err) => {
-                        if (err) {
-                          console.error('Error committing transaction:', err);
-                          res.status(500).json({ error: err.message });
-                          return;
-                        }
-                        res.json({ id });
-                      });
-                    }
-                  });
+                      res.json({ id });
+                    });
+                  }
                 });
               });
             });
-          } else {
-            // Commit the transaction if no tags
-            db.run('COMMIT', (err) => {
-              if (err) {
-                console.error('Error committing transaction:', err);
-                res.status(500).json({ error: err.message });
-                return;
-              }
-              res.json({ id });
-            });
-          }
+          });
+        } else {
+          // Commit the transaction if no tags
+          db.run('COMMIT', (err) => {
+            if (err) {
+              console.error('Error committing transaction:', err);
+              res.status(500).json({ error: err.message });
+              return;
+            }
+            res.json({ id });
+          });
         }
-      );
+      }
+    );
     });
   });
 });
@@ -1782,6 +1816,76 @@ app.delete('/api/expenses/:id', authenticateToken, (req, res) => {
   });
 });
 
+// Hidden expenses endpoints
+app.get('/api/hidden-expenses', authenticateToken, (req, res) => {
+  db.all(`
+    SELECT he.expense_id, he.is_hidden
+    FROM hidden_expenses he
+    JOIN expenses e ON he.expense_id = e.id
+    JOIN budget_versions bv ON e.version_id = bv.id
+    WHERE he.user_id = ? AND bv.is_active = 1
+  `, [req.user.userId], (err, rows) => {
+    if (err) {
+      console.error('Error fetching hidden expenses:', err);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json(rows);
+  });
+});
+
+app.post('/api/hidden-expenses', authenticateToken, (req, res) => {
+  const { expenseId, isHidden } = req.body;
+  
+  if (!expenseId) {
+    res.status(400).json({ error: 'Missing expense ID' });
+    return;
+  }
+
+  db.run(`
+    INSERT OR REPLACE INTO hidden_expenses (user_id, expense_id, is_hidden) 
+    VALUES (?, ?, ?)
+  `, [req.user.userId, expenseId, isHidden ? 1 : 0], function(err) {
+    if (err) {
+      console.error('Error updating hidden expense:', err);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ success: true, changes: this.changes });
+  });
+});
+
+app.put('/api/hidden-expenses/:expenseId', authenticateToken, (req, res) => {
+  const { expenseId } = req.params;
+  const { isHidden } = req.body;
+  
+  db.run(`
+    INSERT OR REPLACE INTO hidden_expenses (user_id, expense_id, is_hidden) 
+    VALUES (?, ?, ?)
+  `, [req.user.userId, expenseId, isHidden ? 1 : 0], function(err) {
+    if (err) {
+      console.error('Error updating hidden expense:', err);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ success: true, changes: this.changes });
+  });
+});
+
+app.delete('/api/hidden-expenses/:expenseId', authenticateToken, (req, res) => {
+  const { expenseId } = req.params;
+  
+  db.run('DELETE FROM hidden_expenses WHERE user_id = ? AND expense_id = ?', 
+    [req.user.userId, expenseId], function(err) {
+    if (err) {
+      console.error('Error deleting hidden expense:', err);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ success: true, changes: this.changes });
+  });
+});
+
 // Settings endpoints
 app.get('/api/settings', authenticateToken, (req, res) => {
   db.all(`
@@ -1861,17 +1965,17 @@ app.post('/api/settings/frequency', authenticateToken, (req, res) => {
       return res.status(400).json({ error: 'No active version found. Please create a version first.' });
     }
 
-    db.run(
+  db.run(
       'INSERT OR REPLACE INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)',
       [req.user.userId, version.id, 'frequency', frequency],
-      function(err) {
-        if (err) {
-          res.status(500).json({ error: err.message });
-          return;
-        }
-        res.json({ frequency });
+    function(err) {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
       }
-    );
+      res.json({ frequency });
+    }
+  );
   });
 });
 
@@ -1888,32 +1992,32 @@ app.put('/api/settings', authenticateToken, (req, res) => {
     if (!version) {
       return res.status(400).json({ error: 'No active version found. Please create a version first.' });
     }
+  
+  // Convert settings object to array of key-value pairs
+  const settingsArray = Object.entries(settings).map(([key, value]) => ({
+    key,
+    value: JSON.stringify(value)
+  }));
 
-    // Convert settings object to array of key-value pairs
-    const settingsArray = Object.entries(settings).map(([key, value]) => ({
-      key,
-      value: JSON.stringify(value)
-    }));
-
-    // Use a transaction to update all settings
-    db.serialize(() => {
-      db.run('BEGIN TRANSACTION');
+  // Use a transaction to update all settings
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
 
       const stmt = db.prepare('INSERT OR REPLACE INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)');
-      
-      settingsArray.forEach(({ key, value }) => {
+    
+    settingsArray.forEach(({ key, value }) => {
         stmt.run(req.user.userId, version.id, key, value);
-      });
+    });
 
-      stmt.finalize();
+    stmt.finalize();
 
-      db.run('COMMIT', (err) => {
-        if (err) {
-          console.error('Error updating settings:', err);
-          res.status(500).json({ error: err.message });
-          return;
-        }
-        res.json(settings);
+    db.run('COMMIT', (err) => {
+      if (err) {
+        console.error('Error updating settings:', err);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.json(settings);
       });
     });
   });
@@ -2013,19 +2117,19 @@ app.post('/api/accounts', authenticateToken, (req, res) => {
 
     if (!version) {
       return res.status(400).json({ error: 'No active version found. Please create a version first.' });
-    }
+  }
 
-    db.run(
+  db.run(
       'INSERT INTO accounts (user_id, version_id, name, bank, currentBalance, requiredBalance, isPrimary, diff) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       [req.user.userId, version.id, name, bank, currentBalance, requiredBalance, isPrimary ? 1 : 0, diff || 0],
-      function(err) {
-        if (err) {
-          console.error('Error adding account:', err);
-          return res.status(500).json({ error: 'Error adding account' });
-        }
-        res.json({ id: this.lastID });
+    function(err) {
+      if (err) {
+        console.error('Error adding account:', err);
+        return res.status(500).json({ error: 'Error adding account' });
       }
-    );
+      res.json({ id: this.lastID });
+    }
+  );
   });
 });
 
@@ -2129,12 +2233,12 @@ app.post('/api/tags', authenticateToken, (req, res) => {
     }
 
     db.run('INSERT OR IGNORE INTO tags (name, color, user_id, version_id) VALUES (?, ?, ?, ?)', [name, color || null, req.user.userId, version.id], function(err) {
-      if (err) {
-        console.error('Error adding tag:', err);
-        res.status(500).json({ error: err.message });
-        return;
-      }
-      res.json({ id: this.lastID });
+    if (err) {
+      console.error('Error adding tag:', err);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ id: this.lastID });
     });
   });
 });
@@ -2629,3 +2733,5 @@ app.listen(port, () => {
   console.log(`JWT Secret: ${JWT_SECRET ? 'Set' : 'Not set'}`);
   console.log(`Database path: ${path.join(__dirname, 'budget.db')}`);
 }); 
+
+// Income endpoints

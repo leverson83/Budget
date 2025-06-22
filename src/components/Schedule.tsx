@@ -11,6 +11,14 @@ import { eachDayOfInterval, format, isSameMonth, isToday, startOfMonth, endOfMon
 import CircularProgress from '@mui/material/CircularProgress';
 import Alert from '@mui/material/Alert';
 import { apiCall } from '../utils/api';
+import Accordion from '@mui/material/Accordion';
+import AccordionSummary from '@mui/material/AccordionSummary';
+import AccordionDetails from '@mui/material/AccordionDetails';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Checkbox from '@mui/material/Checkbox';
+import Button from '@mui/material/Button';
+import Divider from '@mui/material/Divider';
 
 const monthNames = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -127,6 +135,8 @@ const Schedule = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [ignoreWeekends, setIgnoreWeekends] = useState(false);
+  const [hiddenExpenses, setHiddenExpenses] = useState<{[key: string]: boolean}>({});
+  const [showFilter, setShowFilter] = useState(false);
 
   const months = getMonthGrid(startMonth, startYear);
 
@@ -134,23 +144,33 @@ const Schedule = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [incomeRes, expensesRes, settingsRes] = await Promise.all([
+        const [incomeRes, expensesRes, settingsRes, hiddenExpensesRes] = await Promise.all([
           apiCall('/income'),
-          apiCall('/expenses'),
-          apiCall('/settings')
+          apiCall('/expenses?includeHidden=true'),
+          apiCall('/settings'),
+          apiCall('/hidden-expenses')
         ]);
 
         if (!incomeRes.ok) throw new Error('Failed to fetch income');
         if (!expensesRes.ok) throw new Error('Failed to fetch expenses');
         if (!settingsRes.ok) throw new Error('Failed to fetch settings');
+        if (!hiddenExpensesRes.ok) throw new Error('Failed to fetch hidden expenses');
 
         const incomeData = await incomeRes.json();
         const expensesData = await expensesRes.json();
         const settingsData = await settingsRes.json();
+        const hiddenExpensesData = await hiddenExpensesRes.json();
 
         setIncomes(incomeData.map((i: any) => ({ ...i, nextDue: new Date(i.nextDue) })));
         setExpenses(expensesData.map((e: any) => ({ ...e, nextDue: new Date(e.nextDue) })));
         setSettings(settingsData);
+        
+        // Convert hidden expenses array to object
+        const hiddenMap: {[key: string]: boolean} = {};
+        hiddenExpensesData.forEach((item: any) => {
+          hiddenMap[item.expense_id] = item.is_hidden === 1;
+        });
+        setHiddenExpenses(hiddenMap);
       } catch (error) {
         console.error('Error fetching data:', error);
         setError('Failed to load data');
@@ -209,6 +229,7 @@ const Schedule = () => {
         }
         break;
       case 'fortnightly':
+      case 'biweekly':
         while (currentDate <= endDate) {
           dates.push(new Date(currentDate));
           currentDate = addWeeks(currentDate, 2);
@@ -261,8 +282,8 @@ const Schedule = () => {
       }
     });
 
-    // Process expenses
-    expenses.forEach((expense) => {
+    // Process expenses (filter out hidden)
+    expenses.filter(e => !hiddenExpenses[e.id]).forEach((expense) => {
       try {
         const startDate = new Date(expense.nextDue);
         if (!isNaN(startDate.getTime())) {
@@ -286,6 +307,18 @@ const Schedule = () => {
     const dayStr = day.toISOString().split('T')[0];
     const dueDates = getDueDatesForMonth(day);
     const dayData = dueDates.get(dayStr);
+
+    // Calculate max amounts for relative scaling with better dynamic range
+    const visibleExpenses = expenses.filter(e => !hiddenExpenses[e.id]);
+    const maxIncomeAmount = Math.max(...incomes.map(i => i.amount), 1);
+    const maxExpenseAmount = Math.max(...visibleExpenses.map(e => e.amount), 1);
+    
+    // Use a more dynamic scaling that reduces the impact of very large amounts
+    const getBarHeight = (amount: number, maxAmount: number) => {
+      // Use square root scaling to make smaller amounts more visible
+      const scaledAmount = Math.sqrt(amount / maxAmount);
+      return Math.max(3, scaledAmount * 18); // Min 3px, max ~18px
+    };
 
     return (
       <Box
@@ -321,16 +354,19 @@ const Schedule = () => {
               display: 'flex',
               justifyContent: 'center',
               gap: 0.5,
+              alignItems: 'flex-end',
+              height: 24,
             }}
           >
             {dayData?.incomes.map((income) => (
               <Box
                 key={income.id}
                 sx={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: '50%',
+                  width: 4,
+                  height: getBarHeight(income.amount, maxIncomeAmount),
                   bgcolor: 'success.main',
+                  borderRadius: '2px 2px 0 0',
+                  minHeight: 3,
                 }}
               />
             ))}
@@ -338,10 +374,11 @@ const Schedule = () => {
               <Box
                 key={expense.id}
                 sx={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: '50%',
+                  width: 4,
+                  height: getBarHeight(expense.amount, maxExpenseAmount),
                   bgcolor: 'error.main',
+                  borderRadius: '2px 2px 0 0',
+                  minHeight: 3,
                 }}
               />
             ))}
@@ -367,6 +404,26 @@ const Schedule = () => {
         </Tooltip>
       </Box>
     );
+  };
+
+  const toggleExpenseVisibility = async (expenseId: string, isHidden: boolean) => {
+    try {
+      const response = await apiCall('/hidden-expenses', {
+        method: 'POST',
+        body: JSON.stringify({ expenseId, isHidden })
+      });
+
+      if (response.ok) {
+        setHiddenExpenses(prev => ({
+          ...prev,
+          [expenseId]: isHidden
+        }));
+      } else {
+        console.error('Failed to update expense visibility');
+      }
+    } catch (error) {
+      console.error('Error updating expense visibility:', error);
+    }
   };
 
   if (loading) {
@@ -398,6 +455,52 @@ const Schedule = () => {
           <ArrowForwardIosIcon />
         </IconButton>
       </Box>
+
+      {/* Expense Filter */}
+      <Accordion sx={{ mb: 3 }}>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Typography variant="h6">Expense Filter</Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary' }}>
+            Uncheck expenses to hide them from the Planning page. Hidden expenses will not appear in required balance calculations.
+          </Typography>
+          <Divider sx={{ mb: 2 }} />
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, maxHeight: '300px', overflowY: 'auto' }}>
+            {expenses.map((expense) => (
+              <FormControlLabel
+                key={expense.id}
+                control={
+                  <Checkbox
+                    checked={!hiddenExpenses[expense.id]}
+                    onChange={(e) => toggleExpenseVisibility(expense.id, !e.target.checked)}
+                    size="small"
+                  />
+                }
+                label={
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                    <Typography variant="body2">{expense.description}</Typography>
+                    <Typography variant="body2" sx={{ color: 'text.secondary', ml: 2 }}>
+                      ${expense.amount} ({expense.frequency})
+                    </Typography>
+                  </Box>
+                }
+                sx={{ 
+                  width: '100%', 
+                  margin: 0,
+                  '& .MuiFormControlLabel-label': { width: '100%' }
+                }}
+              />
+            ))}
+          </Box>
+          {expenses.length === 0 && (
+            <Typography variant="body2" sx={{ color: 'text.secondary', textAlign: 'center', py: 2 }}>
+              No expenses found
+            </Typography>
+          )}
+        </AccordionDetails>
+      </Accordion>
+
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)', lg: 'repeat(3, 1fr)' }, gap: 3 }}>
         {months.map(({ month, year }) => {
           const dueDates = getDueDatesForMonth(new Date(year, month, 1));

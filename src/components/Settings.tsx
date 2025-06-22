@@ -145,7 +145,7 @@ const Settings = () => {
       setLoading(true);
       const [tagsResponse, expensesResponse] = await Promise.all([
         apiCall('/tags'),
-        apiCall('/expenses')
+        apiCall('/expenses?includeHidden=true')
       ]);
 
       if (tagsResponse.ok && expensesResponse.ok) {

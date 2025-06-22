@@ -390,9 +390,14 @@ const AccountTile = ({
               </Typography>
             )}
             {'requiredBalance' in account && !isPrimary && (
-              <Typography variant="body2" sx={{ color: isChecked ? 'black' : diffColor, fontWeight: 'bold', textAlign: 'center' }}>
-                Difference: {diffText}
-              </Typography>
+              <>
+                <Typography variant="body2" sx={{ textAlign: 'center', color: isChecked ? 'black' : 'inherit' }}>
+                  Required: <strong>{formatCurrency(account.requiredBalance, true)}</strong>
+                </Typography>
+                <Typography variant="body2" sx={{ color: isChecked ? 'black' : diffColor, fontWeight: 'bold', textAlign: 'center' }}>
+                  Difference: {diffText}
+                </Typography>
+              </>
             )}
           </>
         )}

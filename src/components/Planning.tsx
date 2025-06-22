@@ -17,6 +17,10 @@ import {
   MenuItem,
   IconButton,
   Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import { format, subDays, addDays, subMonths, addMonths, subWeeks, addWeeks, differenceInDays } from 'date-fns';
 import { API_URL, frequencies, type Frequency } from '../config';
@@ -49,6 +53,8 @@ const Planning = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedFrequency, setSelectedFrequency] = useState<string>('daily');
   const [selectedAccount, setSelectedAccount] = useState<string>('all');
+  const [showUpdateAllModal, setShowUpdateAllModal] = useState(false);
+  const [updateAllFrequency, setUpdateAllFrequency] = useState<string>('daily');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -271,22 +277,65 @@ const Planning = () => {
     const today = new Date();
     const daysDiff = differenceInDays(today, lastDate);
 
+    let result: number;
     switch (selectedFrequency) {
       case 'daily':
-        return daysDiff;
+        result = daysDiff;
+        break;
       case 'weekly':
-        return Math.ceil(daysDiff / 7);
+        result = Math.ceil(daysDiff / 7);
+        break;
       case 'fortnightly':
-        return Math.ceil(daysDiff / 14);
+        result = Math.ceil(daysDiff / 14);
+        break;
       case 'monthly':
-        return Math.ceil(daysDiff / 30.44); // Average days in a month
+        result = Math.ceil(daysDiff / 30.44); // Average days in a month
+        break;
       case 'quarterly':
-        return Math.ceil(daysDiff / 91.31); // Average days in a quarter
+        result = Math.ceil(daysDiff / 91.31); // Average days in a quarter
+        break;
       case 'annually':
-        return Math.ceil(daysDiff / 365.25); // Account for leap years
+        result = Math.ceil(daysDiff / 365.25); // Account for leap years
+        break;
       default:
-        return daysDiff;
+        result = daysDiff;
     }
+    
+    // Ensure minimum value is 1 to prevent 0 weeks
+    return Math.max(1, result);
+  };
+
+  const calculateTimeSinceLastDueWithFrequency = (lastScheduled: string | Date, frequency: string): number => {
+    const lastDate = typeof lastScheduled === 'string' ? new Date(lastScheduled) : lastScheduled;
+    const today = new Date();
+    const daysDiff = differenceInDays(today, lastDate);
+
+    let result: number;
+    switch (frequency) {
+      case 'daily':
+        result = daysDiff;
+        break;
+      case 'weekly':
+        result = Math.ceil(daysDiff / 7);
+        break;
+      case 'fortnightly':
+        result = Math.ceil(daysDiff / 14);
+        break;
+      case 'monthly':
+        result = Math.ceil(daysDiff / 30.44); // Average days in a month
+        break;
+      case 'quarterly':
+        result = Math.ceil(daysDiff / 91.31); // Average days in a quarter
+        break;
+      case 'annually':
+        result = Math.ceil(daysDiff / 365.25); // Account for leap years
+        break;
+      default:
+        result = daysDiff;
+    }
+    
+    // Ensure minimum value is 1 to prevent 0 weeks
+    return Math.max(1, result);
   };
 
   const getAccountName = (accountId: number | null) => {
@@ -313,6 +362,33 @@ const Planning = () => {
       const { lastScheduled } = calculateScheduledDates(expense.nextDue, expense.frequency);
       const rate = calculateRate(expense.amount, expense.frequency);
       const timeSinceLastDue = calculateTimeSinceLastDue(lastScheduled);
+      const accruedAmount = parseFloat(calculateAccruedAmount(rate, timeSinceLastDue));
+      return total + accruedAmount;
+    }, 0);
+  };
+
+  // Calculate total expected for a specific account using a specific frequency
+  const calculateTotalExpectedForAccount = (accountId: number, frequency: string) => {
+    const accountExpenses = expenses.filter(expense => expense.accountId === accountId);
+    return accountExpenses.reduce((total, expense) => {
+      const { lastScheduled } = calculateScheduledDates(expense.nextDue, expense.frequency);
+      const rate = calculateRate(expense.amount, expense.frequency);
+      const timeSinceLastDue = calculateTimeSinceLastDueWithFrequency(lastScheduled, frequency);
+      const accruedAmount = parseFloat(calculateAccruedAmount(rate, timeSinceLastDue));
+      return total + accruedAmount;
+    }, 0);
+  };
+
+  // Simulate the exact same logic as individual account update
+  const simulateIndividualAccountUpdate = (accountId: number, frequency: string) => {
+    // Create filtered expenses for this account (same as setting selectedAccount)
+    const accountExpenses = expenses.filter(expense => expense.accountId === accountId);
+    
+    // Use the same calculation logic as calculateTotalExpected but with the specified frequency
+    return accountExpenses.reduce((total, expense) => {
+      const { lastScheduled } = calculateScheduledDates(expense.nextDue, expense.frequency);
+      const rate = calculateRate(expense.amount, expense.frequency);
+      const timeSinceLastDue = calculateTimeSinceLastDueWithFrequency(lastScheduled, frequency);
       const accruedAmount = parseFloat(calculateAccruedAmount(rate, timeSinceLastDue));
       return total + accruedAmount;
     }, 0);
@@ -359,6 +435,67 @@ const Planning = () => {
     } catch (err) {
       setError('Failed to update account');
       console.error('Error updating account:', err);
+    }
+  };
+
+  const updateAllAccountsRequiredBalance = async () => {
+    // Sync the modal frequency with the page frequency
+    setUpdateAllFrequency(selectedFrequency);
+    setShowUpdateAllModal(true);
+  };
+
+  // Sync modal frequency with page frequency
+  useEffect(() => {
+    setUpdateAllFrequency(selectedFrequency);
+  }, [selectedFrequency]);
+
+  const handleUpdateAllConfirm = async () => {
+    setShowUpdateAllModal(false);
+    
+    // Update the page frequency to match the modal frequency
+    setSelectedFrequency(updateAllFrequency);
+    
+    try {
+      // Update each account one by one
+      const updatePromises = accounts.map(async (account) => {
+        // Simulate the exact same logic as individual account update
+        const totalExpected = simulateIndividualAccountUpdate(account.id, updateAllFrequency);
+        
+        // Update the account
+        const response = await apiCall(`/accounts/${account.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            name: account.name,
+            bank: account.bank,
+            currentBalance: account.currentBalance,
+            requiredBalance: totalExpected,
+            isPrimary: account.isPrimary,
+            diff: account.diff
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to update account ${account.name}`);
+        }
+
+        return { account: account.name, success: true };
+      });
+
+      // Wait for all updates to complete
+      const results = await Promise.all(updatePromises);
+      
+      // Refresh accounts data to show updated values
+      const accountsResponse = await apiCall('/accounts');
+      if (accountsResponse.ok) {
+        const accountsData = await accountsResponse.json();
+        setAccounts(accountsData);
+      }
+      
+      setError(null);
+      console.log('All accounts updated successfully:', results);
+    } catch (err) {
+      setError('Failed to update some accounts');
+      console.error('Error updating accounts:', err);
     }
   };
 
@@ -413,6 +550,12 @@ const Planning = () => {
           >
             Update Required Balance
           </Button>
+          <Button
+            variant="contained"
+            onClick={updateAllAccountsRequiredBalance}
+          >
+            Update All Accounts
+          </Button>
         </Box>
       </Box>
 
@@ -459,9 +602,9 @@ const Planning = () => {
                   <TableCell>{format(new Date(nextScheduled), "MMM d, yyyy")}</TableCell>
                   <TableCell>{getAccountName(expense.accountId)}</TableCell>
                   <TableCell>${rate.toFixed(2)}</TableCell>
-                  <TableCell>{timeSinceLastDue}</TableCell>
                   <TableCell>{timeSinceLastDue} {selectedFrequency}</TableCell>
                   <TableCell>${accruedAmount}</TableCell>
+                  <TableCell>${calculateTotalExpectedForAccount(expense.accountId, expense.frequency).toFixed(2)}</TableCell>
                 </TableRow>
               );
             })}
@@ -476,6 +619,39 @@ const Planning = () => {
           </TableBody>
         </Table>
       </TableContainer>
+
+      {/* Update All Accounts Confirmation Modal */}
+      <Dialog open={showUpdateAllModal} onClose={() => setShowUpdateAllModal(false)}>
+        <DialogTitle>Update All Required Balances</DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" sx={{ mb: 2 }}>
+            This will update all the required balances as{' '}
+            <FormControl size="small" variant="outlined" sx={{ minWidth: 150, display: 'inline-flex', verticalAlign: 'middle' }}>
+              <Select
+                value={updateAllFrequency}
+                onChange={(e) => setUpdateAllFrequency(e.target.value)}
+                sx={{ height: 32 }}
+              >
+                <MenuItem value="daily">Daily</MenuItem>
+                <MenuItem value="weekly">Weekly</MenuItem>
+                <MenuItem value="fortnightly">Fortnightly</MenuItem>
+                <MenuItem value="monthly">Monthly</MenuItem>
+                <MenuItem value="annually">Annually</MenuItem>
+              </Select>
+            </FormControl>{' '}
+            values.
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            The calculation will be based on the selected frequency for all accounts.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowUpdateAllModal(false)}>Cancel</Button>
+          <Button onClick={handleUpdateAllConfirm} variant="contained">
+            Update All
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

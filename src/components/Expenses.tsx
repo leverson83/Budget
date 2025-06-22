@@ -143,11 +143,12 @@ const Expenses = () => {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [openCalc, setOpenCalc] = useState(false);
+  const [hiddenExpenses, setHiddenExpenses] = useState<{[key: string]: boolean}>({});
 
   type SortField = keyof Expense | 'amountPerFrequency';
 
-  const [sortField, setSortField] = useState<SortField>('amountPerFrequency');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [sortField, setSortField] = useState<SortField>('description');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
   const [calculatedForm, setCalculatedForm] = useState<{
     description: string;
@@ -180,8 +181,8 @@ const Expenses = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // Fetch expenses
-      const expensesResponse = await apiCall('/expenses');
+      // Fetch expenses (including hidden ones)
+      const expensesResponse = await apiCall('/expenses?includeHidden=true');
       if (!expensesResponse.ok) {
         throw new Error('Failed to fetch expenses');
       }
@@ -197,6 +198,17 @@ const Expenses = () => {
         };
       });
       setExpenses(processedExpenses);
+
+      // Fetch hidden expenses status
+      const hiddenExpensesResponse = await apiCall('/hidden-expenses');
+      if (hiddenExpensesResponse.ok) {
+        const hiddenData = await hiddenExpensesResponse.json();
+        const hiddenMap: {[key: string]: boolean} = {};
+        hiddenData.forEach((item: any) => {
+          hiddenMap[item.expense_id] = item.is_hidden === 1;
+        });
+        setHiddenExpenses(hiddenMap);
+      }
 
       // Fetch accounts
       const accountsResponse = await apiCall('/accounts');
@@ -1006,7 +1018,25 @@ const Expenses = () => {
                   <TableCell>
                     <Tooltip title={expense.notes || ''} arrow placement="top">
                       <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                        {expense.description}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          {expense.description}
+                          {hiddenExpenses[expense.id] && (
+                            <Typography 
+                              variant="caption" 
+                              sx={{ 
+                                color: 'text.secondary', 
+                                fontStyle: 'italic',
+                                backgroundColor: 'grey.100',
+                                px: 1,
+                                py: 0.5,
+                                borderRadius: 1,
+                                fontSize: '0.7rem'
+                              }}
+                            >
+                              Hidden
+                            </Typography>
+                          )}
+                        </Box>
                         {expense.notes && (
                           <Box 
                             sx={{ 
