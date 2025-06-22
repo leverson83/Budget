@@ -1919,6 +1919,69 @@ app.put('/api/settings', authenticateToken, (req, res) => {
   });
 });
 
+// Get transfer percentages setting
+app.get('/api/settings/transfers', authenticateToken, (req, res) => {
+  db.all(`
+    SELECT t.* FROM transfers t
+    JOIN budget_versions bv ON t.version_id = bv.id
+    WHERE t.user_id = ? AND bv.is_active = 1
+    ORDER BY t.percentage
+  `, [req.user.userId], (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ transfers: rows || [] });
+  });
+});
+
+// Update transfer percentages setting
+app.post('/api/settings/transfers', authenticateToken, (req, res) => {
+  const { transfers } = req.body;
+  
+  // Get the active version ID
+  db.get('SELECT id FROM budget_versions WHERE user_id = ? AND is_active = 1', [req.user.userId], (err, version) => {
+    if (err) {
+      console.error('Error getting active version:', err);
+      return res.status(500).json({ error: err.message });
+    }
+
+    if (!version) {
+      return res.status(400).json({ error: 'No active version found. Please create a version first.' });
+    }
+
+    db.serialize(() => {
+      db.run('BEGIN TRANSACTION');
+      
+      // Delete existing transfers for this version
+      db.run('DELETE FROM transfers WHERE user_id = ? AND version_id = ?', [req.user.userId, version.id], (err) => {
+        if (err) {
+          console.error('Error deleting existing transfers:', err);
+          db.run('ROLLBACK');
+          return res.status(500).json({ error: err.message });
+        }
+        
+        // Insert new transfers
+        if (transfers && transfers.length > 0) {
+          const stmt = db.prepare('INSERT INTO transfers (user_id, version_id, name, percentage) VALUES (?, ?, ?, ?)');
+          transfers.forEach(transfer => {
+            stmt.run(req.user.userId, version.id, transfer.name, transfer.percentage);
+          });
+          stmt.finalize();
+        }
+        
+        db.run('COMMIT', (err) => {
+          if (err) {
+            console.error('Error committing transaction:', err);
+            return res.status(500).json({ error: err.message });
+          }
+          res.json({ transfers });
+        });
+      });
+    });
+  });
+});
+
 // Accounts API endpoints
 app.get('/api/accounts', authenticateToken, (req, res) => {
   db.all(`
@@ -1970,22 +2033,46 @@ app.put('/api/accounts/:id', authenticateToken, (req, res) => {
   const { name, bank, currentBalance, requiredBalance, isPrimary, diff } = req.body;
   const id = req.params.id;
 
+  console.log(`Account update request: user=${req.user.userId}, account=${id}, data=`, req.body);
+
   if (!name || !bank || currentBalance === undefined || requiredBalance === undefined) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
-  db.run(`
-    UPDATE accounts SET name = ?, bank = ?, currentBalance = ?, requiredBalance = ?, isPrimary = ?, diff = ? 
-    WHERE id = ? AND user_id = ? AND version_id IN (
-      SELECT id FROM budget_versions WHERE user_id = ? AND is_active = 1
-    )
-  `, [name, bank, currentBalance, requiredBalance, isPrimary ? 1 : 0, diff || 0, id, req.user.userId, req.user.userId],
-  function(err) {
+  // First check if the account exists and belongs to the user
+  db.get(`
+    SELECT a.*, bv.id as version_id 
+    FROM accounts a
+    JOIN budget_versions bv ON a.version_id = bv.id
+    WHERE a.id = ? AND a.user_id = ? AND bv.is_active = 1
+  `, [id, req.user.userId], (err, account) => {
     if (err) {
-      console.error('Error updating account:', err);
-      return res.status(500).json({ error: 'Error updating account' });
+      console.error('Error checking account:', err);
+      return res.status(500).json({ error: 'Error checking account' });
     }
-    res.json({ message: 'Account updated successfully' });
+
+    if (!account) {
+      console.log(`Account ${id} not found for user ${req.user.userId}`);
+      return res.status(404).json({ error: 'Account not found' });
+    }
+
+    console.log(`Found account:`, account);
+
+    db.run(`
+      UPDATE accounts SET name = ?, bank = ?, currentBalance = ?, requiredBalance = ?, isPrimary = ?, diff = ? 
+      WHERE id = ? AND user_id = ? AND version_id IN (
+        SELECT id FROM budget_versions WHERE user_id = ? AND is_active = 1
+      )
+    `, [name, bank, currentBalance, requiredBalance, isPrimary ? 1 : 0, diff || 0, id, req.user.userId, req.user.userId],
+    function(err) {
+      if (err) {
+        console.error('Error updating account:', err);
+        return res.status(500).json({ error: 'Error updating account' });
+      }
+      
+      console.log(`Account update successful: ${this.changes} rows affected`);
+      res.json({ message: 'Account updated successfully' });
+    });
   });
 });
 
@@ -2382,17 +2469,31 @@ app.post('/api/import', authenticateToken, (req, res) => {
                       [userId, versionId, tag.name, tag.color],
                       function(err) {
                         if (!err) {
-                          console.log(`Tag "${tag.name}" inserted/replaced with ID: ${this.lastID}`);
-                          tagIdMapping.set(tag.id, this.lastID);
+                          // After insert/replace, fetch the actual tag ID to ensure correct mapping
+                          db.get('SELECT id FROM tags WHERE user_id = ? AND version_id = ? AND name = ?', 
+                            [userId, versionId, tag.name], (err, result) => {
+                            if (!err && result) {
+                              console.log(`Tag "${tag.name}" inserted/replaced with ID: ${result.id}`);
+                              tagIdMapping.set(tag.id, result.id);
+                            } else {
+                              console.error(`Error fetching tag ID for "${tag.name}":`, err);
+                            }
+                            
+                            tagsProcessed++;
+                            if (tagsProcessed === importData.tags.length) {
+                              console.log(`Imported ${importData.tags.length} tags`);
+                              console.log(`Tag mappings populated: ${tagIdMapping.size}`);
+                              resolve();
+                            }
+                          });
                         } else {
                           console.error(`Error inserting tag "${tag.name}":`, err);
-                        }
-                        
-                        tagsProcessed++;
-                        if (tagsProcessed === importData.tags.length) {
-                          console.log(`Imported ${importData.tags.length} tags`);
-                          console.log(`Tag mappings populated: ${tagIdMapping.size}`);
-                          resolve();
+                          tagsProcessed++;
+                          if (tagsProcessed === importData.tags.length) {
+                            console.log(`Imported ${importData.tags.length} tags`);
+                            console.log(`Tag mappings populated: ${tagIdMapping.size}`);
+                            resolve();
+                          }
                         }
                       }
                     );

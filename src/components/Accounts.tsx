@@ -138,22 +138,29 @@ const Accounts = () => {
   const handleSubmit = async () => {
     try {
       const url = editingAccount
-        ? `${API_URL}/accounts/${editingAccount.id}`
-        : `${API_URL}/accounts`;
+        ? `/accounts/${editingAccount.id}`
+        : `/accounts`;
       const method = editingAccount ? 'PUT' : 'POST';
 
       // Calculate diff automatically
       const diff = (formData.currentBalance || 0) - (formData.requiredBalance || 0);
+
+      // Ensure all required fields are present
+      const accountData = {
+        name: formData.name || '',
+        bank: formData.bank || '',
+        currentBalance: formData.currentBalance || 0,
+        requiredBalance: formData.requiredBalance || 0,
+        isPrimary: formData.isPrimary || false,
+        diff: diff
+      };
 
       const response = await apiCall(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          ...formData,
-          diff: diff
-        }),
+        body: JSON.stringify(accountData),
       });
 
       if (!response.ok) {
