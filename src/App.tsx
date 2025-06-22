@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Box, CssBaseline, ThemeProvider, createTheme, CircularProgress } from '@mui/material';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
@@ -34,8 +34,9 @@ const theme = createTheme({
   },
 });
 
-const AuthenticatedApp = () => {
-  const { isAuthenticated, loading, login } = useAuth();
+// Protected Route Component
+const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
+  const { isAuthenticated, loading } = useAuth();
 
   if (loading) {
     return (
@@ -53,37 +54,179 @@ const AuthenticatedApp = () => {
   }
 
   if (!isAuthenticated) {
-    return <Login onLogin={login} />;
+    return <Navigate to="/login" replace />;
   }
 
+  return <>{children}</>;
+};
+
+// Login Page Component
+const LoginPage = () => {
+  const { isAuthenticated, login } = useAuth();
+
+  if (isAuthenticated) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <Login onLogin={login} />;
+};
+
+// Main App Component
+const MainApp = () => {
   return (
     <FrequencyProvider>
       <SettingsProvider>
-        <Router>
-          <Box sx={{ display: 'flex' }}>
-            <Sidebar />
-            <Box
-              component="main"
-              sx={{
-                flex: 1,
-                minHeight: '100vh',
-                bgcolor: 'background.default'
-              }}
-            >
-              <Routes>
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/income" element={<Income />} />
-                <Route path="/expenses" element={<Expenses />} />
-                <Route path="/accounts" element={<Accounts />} />
-                <Route path="/schedule" element={<Schedule />} />
-                <Route path="/planning" element={<Planning />} />
-                <Route path="/settings" element={<Settings />} />
-              </Routes>
-            </Box>
-          </Box>
-        </Router>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/" element={
+            <ProtectedRoute>
+              <Box sx={{ display: 'flex' }}>
+                <Sidebar />
+                <Box
+                  component="main"
+                  sx={{
+                    flex: 1,
+                    minHeight: '100vh',
+                    bgcolor: 'background.default'
+                  }}
+                >
+                  <Dashboard />
+                </Box>
+              </Box>
+            </ProtectedRoute>
+          } />
+          <Route path="/dashboard" element={<Navigate to="/" replace />} />
+          <Route path="/income" element={
+            <ProtectedRoute>
+              <Box sx={{ display: 'flex' }}>
+                <Sidebar />
+                <Box
+                  component="main"
+                  sx={{
+                    flex: 1,
+                    minHeight: '100vh',
+                    bgcolor: 'background.default'
+                  }}
+                >
+                  <Income />
+                </Box>
+              </Box>
+            </ProtectedRoute>
+          } />
+          <Route path="/expenses" element={
+            <ProtectedRoute>
+              <Box sx={{ display: 'flex' }}>
+                <Sidebar />
+                <Box
+                  component="main"
+                  sx={{
+                    flex: 1,
+                    minHeight: '100vh',
+                    bgcolor: 'background.default'
+                  }}
+                >
+                  <Expenses />
+                </Box>
+              </Box>
+            </ProtectedRoute>
+          } />
+          <Route path="/accounts" element={
+            <ProtectedRoute>
+              <Box sx={{ display: 'flex' }}>
+                <Sidebar />
+                <Box
+                  component="main"
+                  sx={{
+                    flex: 1,
+                    minHeight: '100vh',
+                    bgcolor: 'background.default'
+                  }}
+                >
+                  <Accounts />
+                </Box>
+              </Box>
+            </ProtectedRoute>
+          } />
+          <Route path="/schedule" element={
+            <ProtectedRoute>
+              <Box sx={{ display: 'flex' }}>
+                <Sidebar />
+                <Box
+                  component="main"
+                  sx={{
+                    flex: 1,
+                    minHeight: '100vh',
+                    bgcolor: 'background.default'
+                  }}
+                >
+                  <Schedule />
+                </Box>
+              </Box>
+            </ProtectedRoute>
+          } />
+          <Route path="/planning" element={
+            <ProtectedRoute>
+              <Box sx={{ display: 'flex' }}>
+                <Sidebar />
+                <Box
+                  component="main"
+                  sx={{
+                    flex: 1,
+                    minHeight: '100vh',
+                    bgcolor: 'background.default'
+                  }}
+                >
+                  <Planning />
+                </Box>
+              </Box>
+            </ProtectedRoute>
+          } />
+          <Route path="/settings" element={
+            <ProtectedRoute>
+              <Box sx={{ display: 'flex' }}>
+                <Sidebar />
+                <Box
+                  component="main"
+                  sx={{
+                    flex: 1,
+                    minHeight: '100vh',
+                    bgcolor: 'background.default'
+                  }}
+                >
+                  <Settings />
+                </Box>
+              </Box>
+            </ProtectedRoute>
+          } />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </SettingsProvider>
     </FrequencyProvider>
+  );
+};
+
+const AuthenticatedApp = () => {
+  const { loading } = useAuth();
+
+  if (loading) {
+    return (
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          height: '100vh',
+        }}
+      >
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  return (
+    <Router>
+      <MainApp />
+    </Router>
   );
 };
 

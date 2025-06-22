@@ -20,7 +20,7 @@ import {
 } from '@mui/material';
 import { format, subDays, addDays, subMonths, addMonths, subWeeks, addWeeks, differenceInDays } from 'date-fns';
 import { API_URL, frequencies, type Frequency } from '../config';
-import axios from 'axios';
+import { apiCall } from '../utils/api';
 import { Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
 
 interface Expense {
@@ -29,7 +29,7 @@ interface Expense {
   amount: number;
   frequency: Frequency;
   nextDue: string;
-  accountId: number;
+  accountId: number | null;
 }
 
 interface Account {
@@ -54,11 +54,18 @@ const Planning = () => {
     const fetchData = async () => {
       try {
         const [expensesResponse, accountsResponse] = await Promise.all([
-          axios.get('http://localhost:3001/api/expenses'),
-          axios.get('http://localhost:3001/api/accounts')
+          apiCall('/expenses'),
+          apiCall('/accounts')
         ]);
-        setExpenses(expensesResponse.data);
-        setAccounts(accountsResponse.data);
+        
+        if (expensesResponse.ok && accountsResponse.ok) {
+          const expensesData = await expensesResponse.json();
+          const accountsData = await accountsResponse.json();
+          setExpenses(expensesData);
+          setAccounts(accountsData);
+        } else {
+          throw new Error('Failed to fetch data');
+        }
       } catch (err) {
         setError('Failed to fetch data');
         console.error('Error fetching data:', err);
@@ -282,9 +289,17 @@ const Planning = () => {
     }
   };
 
-  const getAccountName = (accountId: number) => {
+  const getAccountName = (accountId: number | null) => {
+    if (accountId === null || accountId === undefined) {
+      return 'No Account';
+    }
+    
     const account = accounts.find(acc => acc.id === accountId);
-    return account ? account.name : 'Unknown';
+    if (!account) {
+      console.log(`Account not found for ID: ${accountId}. Available accounts:`, accounts.map(a => ({ id: a.id, name: a.name })));
+      return 'Unknown';
+    }
+    return account.name;
   };
 
   const filteredExpenses = expenses.filter(expense => {
@@ -305,36 +320,44 @@ const Planning = () => {
 
   const updateAccountRequiredBalance = async () => {
     if (selectedAccount === 'all') {
-      setError('Please select a specific account to update its required balance');
+      setError('Please select a specific account');
       return;
     }
 
-    try {
-      const account = accounts.find(acc => acc.id === parseInt(selectedAccount));
-      if (!account) {
-        setError('Account not found');
-        return;
-      }
+    const account = accounts.find(acc => acc.id.toString() === selectedAccount);
+    if (!account) {
+      setError('Account not found');
+      return;
+    }
 
-      const totalExpected = calculateTotalExpected();
-      
-      const response = await axios.put(`http://localhost:3001/api/accounts/${selectedAccount}`, {
-        name: account.name,
-        bank: account.bank,
-        currentBalance: account.currentBalance,
-        requiredBalance: totalExpected,
-        isPrimary: account.isPrimary,
-        diff: account.diff
+    const totalExpected = calculateTotalExpected();
+    
+    try {
+      const response = await apiCall(`/accounts/${selectedAccount}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          name: account.name,
+          bank: account.bank,
+          currentBalance: account.currentBalance,
+          requiredBalance: totalExpected,
+          isPrimary: account.isPrimary,
+          diff: account.diff
+        })
       });
 
-      if (response.status === 200) {
+      if (response.ok) {
         // Refresh accounts data to show updated values
-        const accountsResponse = await axios.get('http://localhost:3001/api/accounts');
-        setAccounts(accountsResponse.data);
+        const accountsResponse = await apiCall('/accounts');
+        if (accountsResponse.ok) {
+          const accountsData = await accountsResponse.json();
+          setAccounts(accountsData);
+        }
         setError(null);
+      } else {
+        setError('Failed to update account');
       }
     } catch (err) {
-      setError('Failed to update account required balance');
+      setError('Failed to update account');
       console.error('Error updating account:', err);
     }
   };

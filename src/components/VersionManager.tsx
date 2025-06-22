@@ -25,7 +25,9 @@ import {
   Tab,
   Divider,
   Avatar,
-  Tooltip
+  Tooltip,
+  CircularProgress,
+  ListItemIcon
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -37,7 +39,14 @@ import {
   Star as StarIcon,
   StarBorder as StarBorderIcon,
   Person as PersonIcon,
-  Group as GroupIcon
+  Group as GroupIcon,
+  Close as CloseIcon,
+  FileDownload as ImportExportIcon,
+  AccountBalance as AccountBalanceIcon,
+  AttachMoney as AttachMoneyIcon,
+  AccountBalanceWallet as AccountBalanceWalletIcon,
+  LocalOffer as LocalOfferIcon,
+  Settings as SettingsIcon
 } from '@mui/icons-material';
 import { apiCall } from '../utils/api';
 
@@ -94,6 +103,16 @@ const VersionManager: React.FC<VersionManagerProps> = ({ open, onClose, onVersio
     message: '',
     severity: 'success'
   });
+
+  const [error, setError] = useState('');
+  
+  // Import/Export states
+  const [importLoading, setImportLoading] = useState(false);
+  const [importError, setImportError] = useState('');
+  const [importSuccess, setImportSuccess] = useState('');
+  const [importData, setImportData] = useState<any>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [versionName, setVersionName] = useState('Imported Version');
 
   const navigate = useNavigate();
 
@@ -327,6 +346,135 @@ const VersionManager: React.FC<VersionManagerProps> = ({ open, onClose, onVersio
 
   const showSnackbar = (message: string, severity: 'success' | 'error') => {
     setSnackbar({ open: true, message, severity });
+  };
+
+  // Import/Export functions
+  const handleExport = async () => {
+    setImportLoading(true);
+    setImportError('');
+    setImportSuccess('');
+
+    try {
+      const response = await apiCall('/export', {
+        method: 'GET',
+      });
+
+      if (!response.ok) {
+        throw new Error('Export failed');
+      }
+
+      const data = await response.json();
+      
+      // Create and download file
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `budget-export-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      setImportSuccess('Data exported successfully!');
+      setTimeout(() => {
+        setImportSuccess('');
+      }, 3000);
+
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Export failed');
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+      setImportError('');
+      setImportSuccess('');
+      
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = JSON.parse(e.target?.result as string);
+          if (data.version && (data.accounts || data.income || data.expenses || data.tags || data.settings)) {
+            setImportData(data);
+          } else {
+            setImportError('Invalid file format. Please select a valid budget export file.');
+            setSelectedFile(null);
+          }
+        } catch (err) {
+          setImportError('Invalid JSON file. Please select a valid budget export file.');
+          setSelectedFile(null);
+        }
+      };
+      reader.readAsText(file);
+    }
+  };
+
+  const handleImport = async () => {
+    if (!importData) return;
+
+    setImportLoading(true);
+    setImportError('');
+    setImportSuccess('');
+
+    try {
+      // Update the import data with the custom version name
+      const importDataWithCustomName = {
+        ...importData,
+        version: {
+          ...importData.version,
+          name: versionName.trim() || 'Imported Version'
+        }
+      };
+
+      const response = await apiCall('/import', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(importDataWithCustomName),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Import failed');
+      }
+
+      const result = await response.json();
+      setImportSuccess(`Import completed successfully! Imported: ${result.imported.accounts} accounts, ${result.imported.income} income items, ${result.imported.expenses} expenses, ${result.imported.tags} tags, ${result.imported.settings} settings`);
+      
+      // Refresh data
+      loadData();
+      onVersionChange();
+      
+      setTimeout(() => {
+        setImportSuccess('');
+        setImportData(null);
+        setSelectedFile(null);
+        setVersionName('Imported Version');
+      }, 3000);
+
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Import failed');
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  const getDataSummary = (data: any) => {
+    if (!data) return null;
+    
+    return [
+      { icon: <AccountBalanceIcon />, label: 'Accounts', count: data.accounts?.length || 0 },
+      { icon: <AttachMoneyIcon />, label: 'Income', count: data.income?.length || 0 },
+      { icon: <AccountBalanceWalletIcon />, label: 'Expenses', count: data.expenses?.length || 0 },
+      { icon: <LocalOfferIcon />, label: 'Tags', count: data.tags?.length || 0 },
+      { icon: <SettingsIcon />, label: 'Settings', count: data.settings?.length || 0 },
+    ];
   };
 
   const formatDate = (dateString: string) => {
@@ -582,17 +730,30 @@ const VersionManager: React.FC<VersionManagerProps> = ({ open, onClose, onVersio
       <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
         <DialogTitle>
           <Box display="flex" justifyContent="space-between" alignItems="center">
-            <Typography variant="h6">Budget Versions</Typography>
+            <Typography variant="h6">Version Manager</Typography>
+            <IconButton onClick={onClose}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ mb: 2 }}>
             <Button
               variant="contained"
               startIcon={<AddIcon />}
               onClick={() => setCreateDialogOpen(true)}
+              fullWidth
             >
               New Version
             </Button>
           </Box>
-        </DialogTitle>
-        <DialogContent>
+          
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {error}
+            </Alert>
+          )}
+
           {loading ? (
             <Typography>Loading versions...</Typography>
           ) : (
@@ -601,6 +762,7 @@ const VersionManager: React.FC<VersionManagerProps> = ({ open, onClose, onVersio
                 <Tab label={`My Versions (${versions.length})`} />
                 <Tab label={`Shared with Me (${sharedVersions.length})`} />
                 <Tab label={`Shared by Me (${sharedByMe.length})`} />
+                <Tab label="Import/Export" />
               </Tabs>
               
               <Box mt={2}>
@@ -638,6 +800,126 @@ const VersionManager: React.FC<VersionManagerProps> = ({ open, onClose, onVersio
                       sharedByMe.map((version) => renderSharedByMeItem(version))
                     )}
                   </List>
+                )}
+                
+                {activeTab === 3 && (
+                  <Box>
+                    {importError && (
+                      <Alert severity="error" sx={{ mb: 2 }}>
+                        {importError}
+                      </Alert>
+                    )}
+                    {importSuccess && (
+                      <Alert severity="success" sx={{ mb: 2 }}>
+                        {importSuccess}
+                      </Alert>
+                    )}
+
+                    {/* Export Section */}
+                    <Box sx={{ mb: 3 }}>
+                      <Typography variant="subtitle1" sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
+                        <ImportExportIcon sx={{ mr: 1 }} />
+                        Export Data
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        Export your current budget data as a JSON file. This includes all accounts, income, expenses, tags, and settings.
+                      </Typography>
+                      <Button
+                        variant="contained"
+                        startIcon={importLoading ? <CircularProgress size={16} /> : <ImportExportIcon />}
+                        onClick={handleExport}
+                        disabled={importLoading}
+                        fullWidth
+                      >
+                        {importLoading ? 'Exporting...' : 'Export Data'}
+                      </Button>
+                    </Box>
+
+                    <Divider sx={{ my: 3 }} />
+
+                    {/* Import Section */}
+                    <Box>
+                      <Typography variant="subtitle1" sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
+                        <ImportExportIcon sx={{ mr: 1 }} />
+                        Import Data
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        Import budget data from a previously exported JSON file. This will create a new version with the imported data.
+                      </Typography>
+
+                      <input
+                        accept=".json"
+                        style={{ display: 'none' }}
+                        id="import-file-input"
+                        type="file"
+                        onChange={handleFileSelect}
+                      />
+                      <label htmlFor="import-file-input">
+                        <Button
+                          variant="outlined"
+                          component="span"
+                          startIcon={<ImportExportIcon />}
+                          disabled={importLoading}
+                          fullWidth
+                          sx={{ mb: 2 }}
+                        >
+                          Select File
+                        </Button>
+                      </label>
+
+                      {selectedFile && (
+                        <Typography variant="body2" sx={{ mb: 2 }}>
+                          Selected: {selectedFile.name}
+                        </Typography>
+                      )}
+
+                      {importData && (
+                        <>
+                          <TextField
+                            fullWidth
+                            label="Version Name"
+                            value={versionName}
+                            onChange={(e) => setVersionName(e.target.value)}
+                            placeholder="Enter a name for the imported version"
+                            sx={{ mb: 2 }}
+                            helperText="This will be the name of the new version created from the imported data"
+                          />
+                          
+                          <Box sx={{ mb: 2 }}>
+                            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                              Import Summary:
+                            </Typography>
+                            <List dense>
+                              {getDataSummary(importData)?.map((item, index) => (
+                                <ListItem key={index} sx={{ py: 0 }}>
+                                  <ListItemIcon sx={{ minWidth: 32 }}>
+                                    {item.icon}
+                                  </ListItemIcon>
+                                  <ListItemText 
+                                    primary={`${item.label}: ${item.count}`}
+                                    primaryTypographyProps={{ variant: 'body2' }}
+                                  />
+                                </ListItem>
+                              ))}
+                            </List>
+                          </Box>
+                        </>
+                      )}
+
+                      {importData && (
+                        <Button
+                          variant="contained"
+                          color="primary"
+                          startIcon={importLoading ? <CircularProgress size={16} /> : <ImportExportIcon />}
+                          onClick={handleImport}
+                          disabled={importLoading}
+                          fullWidth
+                        >
+                          {importLoading ? 'Importing...' : 'Import Data'}
+                        </Button>
+                      )}
+                    </Box>
+                  </Box>
                 )}
               </Box>
             </Box>

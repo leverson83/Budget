@@ -7,6 +7,7 @@ const cors = require('cors');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const port = process.env.PORT || 8585;
@@ -873,6 +874,16 @@ app.post('/api/auth/register', (req, res) => {
               }
 
               const versionId = this.lastID;
+              console.log(`Created default version (ID: ${versionId}) for new user ${email}`);
+
+              // Set as default version in users table
+              db.run('UPDATE users SET default_version_id = ? WHERE id = ?', [versionId, userId], (err) => {
+                if (err) {
+                  console.error('Error setting default version:', err);
+                } else {
+                  console.log(`Set default version ${versionId} for new user ${email}`);
+                }
+              });
 
               // Insert default settings for new user
               const defaultSettings = [
@@ -2138,6 +2149,359 @@ app.get('/api/health', (req, res) => {
     status: 'healthy', 
     timestamp: new Date().toISOString(),
     uptime: process.uptime()
+  });
+});
+
+// Export user data endpoint
+app.get('/api/export', authenticateToken, (req, res) => {
+  const userId = req.user.userId;
+  
+  console.log(`Exporting data for user ${userId}...`);
+  
+  // Get user's active version
+  db.get('SELECT id FROM budget_versions WHERE user_id = ? AND is_active = 1', [userId], (err, version) => {
+    if (err || !version) {
+      return res.status(400).json({ error: 'No active version found' });
+    }
+    
+    const versionId = version.id;
+    const exportData = {
+      exportDate: new Date().toISOString(),
+      version: {
+        id: versionId,
+        name: 'Default',
+        description: 'Exported budget version'
+      },
+      accounts: [],
+      income: [],
+      expenses: [],
+      tags: [],
+      settings: [],
+      expenseTags: []
+    };
+    
+    // Export accounts
+    db.all('SELECT * FROM accounts WHERE user_id = ? AND version_id = ?', [userId, versionId], (err, accounts) => {
+      if (!err) exportData.accounts = accounts;
+      
+      // Export income
+      db.all('SELECT * FROM income WHERE user_id = ? AND version_id = ?', [userId, versionId], (err, income) => {
+        if (!err) exportData.income = income;
+        
+        // Export expenses
+        db.all('SELECT * FROM expenses WHERE user_id = ? AND version_id = ?', [userId, versionId], (err, expenses) => {
+          if (!err) exportData.expenses = expenses;
+          
+          // Export tags
+          db.all('SELECT * FROM tags WHERE user_id = ? AND version_id = ?', [userId, versionId], (err, tags) => {
+            if (!err) exportData.tags = tags;
+            
+            // Export settings
+            db.all('SELECT * FROM settings WHERE user_id = ? AND version_id = ?', [userId, versionId], (err, settings) => {
+              if (!err) exportData.settings = settings;
+              
+              // Export expense-tag relationships
+              db.all(`
+                SELECT et.expense_id, et.tag_id, t.name as tag_name 
+                FROM expense_tags et
+                JOIN tags t ON et.tag_id = t.id
+                JOIN expenses e ON et.expense_id = e.id
+                WHERE e.user_id = ? AND e.version_id = ?
+              `, [userId, versionId], (err, expenseTags) => {
+                if (!err) exportData.expenseTags = expenseTags;
+                
+                // Set response headers for file download
+                res.setHeader('Content-Type', 'application/json');
+                res.setHeader('Content-Disposition', `attachment; filename="budget-export-${new Date().toISOString().split('T')[0]}.json"`);
+                
+                console.log(`Exported data for user ${userId}: ${exportData.accounts.length} accounts, ${exportData.income.length} income, ${exportData.expenses.length} expenses, ${exportData.tags.length} tags, ${exportData.settings.length} settings, ${exportData.expenseTags.length} expense-tag relationships`);
+                
+                res.json(exportData);
+              });
+            });
+          });
+        });
+      });
+    });
+  });
+});
+
+// Import user data endpoint
+app.post('/api/import', authenticateToken, (req, res) => {
+  const userId = req.user.userId;
+  const importData = req.body;
+  
+  if (!importData || !importData.version) {
+    return res.status(400).json({ error: 'Invalid import data format' });
+  }
+  
+  console.log(`Importing data for user ${userId}...`);
+
+  function getUniqueVersionName(baseName, callback) {
+    let name = baseName;
+    let counter = 1;
+    function check() {
+      db.get('SELECT 1 FROM budget_versions WHERE user_id = ? AND name = ?', [userId, name], (err, row) => {
+        if (err) return callback(baseName); // fallback
+        if (!row) return callback(name);
+        name = `${baseName}-import-${counter++}`;
+        check();
+      });
+    }
+    check();
+  }
+
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
+    try {
+      const baseName = importData.version.name || 'Imported Version';
+      console.log(`Attempting to create version with name: "${baseName}"`);
+      
+      getUniqueVersionName(baseName, (uniqueName) => {
+        if (uniqueName !== baseName) {
+          console.log(`Version name "${baseName}" already exists, using: "${uniqueName}"`);
+        }
+        
+        db.run(
+          'INSERT INTO budget_versions (user_id, name, description, is_active) VALUES (?, ?, ?, 0)',
+          [userId, uniqueName, importData.version.description || 'Imported budget data'],
+          function(err) {
+            if (err) {
+              console.error('Error creating version:', err);
+              db.run('ROLLBACK');
+              return res.status(500).json({ error: 'Failed to create version' });
+            }
+            
+            const versionId = this.lastID;
+            console.log(`Created new version (ID: ${versionId}, Name: "${uniqueName}") for import`);
+            
+            // Store mappings for relationships
+            const accountIdMapping = new Map(); // old ID -> new ID
+            const expenseIdMapping = new Map(); // old ID -> new ID
+            const incomeIdMapping = new Map();
+            const tagIdMapping = new Map();
+
+            // Helper to insert accounts and return a Promise
+            function insertAccounts() {
+              return new Promise((resolve) => {
+                if (importData.accounts && importData.accounts.length > 0) {
+                  let accountsProcessed = 0;
+                  importData.accounts.forEach(account => {
+                    db.run(
+                      'INSERT INTO accounts (user_id, version_id, name, bank, currentBalance, requiredBalance, isPrimary, diff) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                      [userId, versionId, account.name, account.bank, account.currentBalance, account.requiredBalance, account.isPrimary, account.diff],
+                      function(err) {
+                        if (!err) {
+                          accountIdMapping.set(account.id, this.lastID);
+                        }
+                        accountsProcessed++;
+                        if (accountsProcessed === importData.accounts.length) {
+                          console.log(`Imported ${importData.accounts.length} accounts`);
+                          resolve();
+                        }
+                      }
+                    );
+                  });
+                } else {
+                  resolve();
+                }
+              });
+            }
+
+            // Helper to insert income and return a Promise
+            function insertIncome() {
+              return new Promise((resolve) => {
+                if (importData.income && importData.income.length > 0) {
+                  let incomeProcessed = 0;
+                  importData.income.forEach(income => {
+                    const newIncomeId = uuidv4();
+                    db.run(
+                      'INSERT INTO income (id, user_id, version_id, description, amount, frequency, nextDue, applyFuzziness) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                      [newIncomeId, userId, versionId, income.description, income.amount, income.frequency, income.nextDue, income.applyFuzziness],
+                      function(err) {
+                        if (!err) {
+                          incomeIdMapping.set(income.id, newIncomeId);
+                        }
+                        incomeProcessed++;
+                        if (incomeProcessed === importData.income.length) {
+                          console.log(`Imported ${importData.income.length} income items`);
+                          resolve();
+                        }
+                      }
+                    );
+                  });
+                } else {
+                  resolve();
+                }
+              });
+            }
+
+            // Helper to insert expenses and return a Promise
+            function insertExpenses() {
+              return new Promise((resolve) => {
+                if (importData.expenses && importData.expenses.length > 0) {
+                  let expensesProcessed = 0;
+                  importData.expenses.forEach(expense => {
+                    const newExpenseId = uuidv4();
+                    // Map accountId if present
+                    let newAccountId = null;
+                    if (typeof expense.accountId !== 'undefined' && expense.accountId !== null && accountIdMapping.has(expense.accountId)) {
+                      newAccountId = accountIdMapping.get(expense.accountId);
+                    }
+                    db.run(
+                      'INSERT INTO expenses (id, user_id, version_id, description, amount, frequency, nextDue, applyFuzziness, notes, accountId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                      [newExpenseId, userId, versionId, expense.description, expense.amount, expense.frequency, expense.nextDue, expense.applyFuzziness, expense.notes, newAccountId],
+                      function(err) {
+                        if (!err) {
+                          expenseIdMapping.set(expense.id, newExpenseId);
+                        }
+                        expensesProcessed++;
+                        if (expensesProcessed === importData.expenses.length) {
+                          console.log(`Imported ${importData.expenses.length} expenses`);
+                          resolve();
+                        }
+                      }
+                    );
+                  });
+                } else {
+                  resolve();
+                }
+              });
+            }
+
+            // Helper to insert tags and return a Promise
+            function insertTags() {
+              return new Promise((resolve) => {
+                if (importData.tags && importData.tags.length > 0) {
+                  let tagsProcessed = 0;
+                  
+                  // Insert all tags - use REPLACE to handle duplicates and always get IDs
+                  importData.tags.forEach(tag => {
+                    db.run(
+                      'INSERT OR REPLACE INTO tags (user_id, version_id, name, color) VALUES (?, ?, ?, ?)',
+                      [userId, versionId, tag.name, tag.color],
+                      function(err) {
+                        if (!err) {
+                          console.log(`Tag "${tag.name}" inserted/replaced with ID: ${this.lastID}`);
+                          tagIdMapping.set(tag.id, this.lastID);
+                        } else {
+                          console.error(`Error inserting tag "${tag.name}":`, err);
+                        }
+                        
+                        tagsProcessed++;
+                        if (tagsProcessed === importData.tags.length) {
+                          console.log(`Imported ${importData.tags.length} tags`);
+                          console.log(`Tag mappings populated: ${tagIdMapping.size}`);
+                          resolve();
+                        }
+                      }
+                    );
+                  });
+                } else {
+                  resolve();
+                }
+              });
+            }
+
+            // Helper to insert settings and return a Promise
+            function insertSettings() {
+              return new Promise((resolve) => {
+                if (importData.settings && importData.settings.length > 0) {
+                  let settingsProcessed = 0;
+                  importData.settings.forEach(setting => {
+                    db.run(
+                      'INSERT INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)',
+                      [userId, versionId, setting.key, setting.value],
+                      function(err) {
+                        settingsProcessed++;
+                        if (settingsProcessed === importData.settings.length) {
+                          console.log(`Imported ${importData.settings.length} settings`);
+                          resolve();
+                        }
+                      }
+                    );
+                  });
+                } else {
+                  resolve();
+                }
+              });
+            }
+
+            // Helper to insert expense-tag relationships and return a Promise
+            function insertExpenseTags() {
+              return new Promise((resolve) => {
+                if (importData.expenseTags && importData.expenseTags.length > 0) {
+                  console.log('Importing expense-tag relationships...');
+                  console.log('Expense mappings:', expenseIdMapping.size);
+                  console.log('Tag mappings:', tagIdMapping.size);
+                  
+                  let relationshipsProcessed = 0;
+                  importData.expenseTags.forEach(et => {
+                    const newExpenseId = expenseIdMapping.get(et.expense_id);
+                    const newTagId = tagIdMapping.get(et.tag_id);
+                    if (newExpenseId && newTagId) {
+                      db.run('INSERT INTO expense_tags (expense_id, tag_id) VALUES (?, ?)', [newExpenseId, newTagId], function(err) {
+                        if (err) {
+                          console.error('Error inserting expense-tag relationship:', err);
+                        }
+                        relationshipsProcessed++;
+                        if (relationshipsProcessed === importData.expenseTags.length) {
+                          console.log(`Imported ${importData.expenseTags.length} expense-tag relationships`);
+                          resolve();
+                        }
+                      });
+                    } else {
+                      console.warn(`Skipping expense-tag relationship: expense_id=${et.expense_id} (mapped to ${newExpenseId}), tag_id=${et.tag_id} (mapped to ${newTagId})`);
+                      relationshipsProcessed++;
+                      if (relationshipsProcessed === importData.expenseTags.length) {
+                        console.log(`Imported ${importData.expenseTags.length} expense-tag relationships`);
+                        resolve();
+                      }
+                    }
+                  });
+                } else {
+                  resolve();
+                }
+              });
+            }
+
+            // Now, run the imports in sequence to ensure mapping is ready
+            insertAccounts()
+              .then(() => insertIncome())
+              .then(() => insertExpenses())
+              .then(() => insertTags())
+              .then(() => insertSettings())
+              .then(() => insertExpenseTags())
+              .then(() => {
+                db.run('COMMIT');
+                console.log(`Import completed for user ${userId}`);
+                res.json({ 
+                  message: 'Import completed successfully',
+                  versionId: versionId,
+                  versionName: uniqueName,
+                  imported: {
+                    accounts: importData.accounts?.length || 0,
+                    income: importData.income?.length || 0,
+                    expenses: importData.expenses?.length || 0,
+                    tags: importData.tags?.length || 0,
+                    settings: importData.settings?.length || 0,
+                    expenseTags: importData.expenseTags?.length || 0
+                  }
+                });
+              })
+              .catch((error) => {
+                console.error('Import error:', error);
+                db.run('ROLLBACK');
+                res.status(500).json({ error: 'Import failed' });
+              });
+          }
+        );
+      });
+    } catch (error) {
+      console.error('Import error:', error);
+      db.run('ROLLBACK');
+      res.status(500).json({ error: 'Import failed' });
+    }
   });
 });
 
