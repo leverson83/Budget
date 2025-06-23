@@ -368,7 +368,8 @@ const Planning = () => {
   };
 
   // Calculate total expected for a specific account using a specific frequency
-  const calculateTotalExpectedForAccount = (accountId: number, frequency: string) => {
+  const calculateTotalExpectedForAccount = (accountId: number | null, frequency: string) => {
+    if (accountId === null) return 0;
     const accountExpenses = expenses.filter(expense => expense.accountId === accountId);
     return accountExpenses.reduce((total, expense) => {
       const { lastScheduled } = calculateScheduledDates(expense.nextDue, expense.frequency);
