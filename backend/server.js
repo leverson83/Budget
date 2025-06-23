@@ -2346,21 +2346,35 @@ app.get('/api/health', (req, res) => {
 // Export user data endpoint
 app.get('/api/export', authenticateToken, (req, res) => {
   const userId = req.user.userId;
-  
+  const requestedVersionId = req.query.versionId ? parseInt(req.query.versionId, 10) : null;
+
   console.log(`Exporting data for user ${userId}...`);
-  
-  // Get user's active version
-  db.get('SELECT id FROM budget_versions WHERE user_id = ? AND is_active = 1', [userId], (err, version) => {
-    if (err || !version) {
-      return res.status(400).json({ error: 'No active version found' });
+
+  // Get the version to export
+  function getVersionId(callback) {
+    if (requestedVersionId) {
+      db.get('SELECT id, name FROM budget_versions WHERE user_id = ? AND id = ?', [userId, requestedVersionId], (err, version) => {
+        if (err || !version) {
+          return res.status(400).json({ error: 'Requested version not found' });
+        }
+        callback(version.id, version.name);
+      });
+    } else {
+      db.get('SELECT id, name FROM budget_versions WHERE user_id = ? AND is_active = 1', [userId], (err, version) => {
+        if (err || !version) {
+          return res.status(400).json({ error: 'No active version found' });
+        }
+        callback(version.id, version.name);
+      });
     }
-    
-    const versionId = version.id;
+  }
+
+  getVersionId((versionId, versionName) => {
     const exportData = {
       exportDate: new Date().toISOString(),
       version: {
         id: versionId,
-        name: 'Default',
+        name: versionName || 'Default',
         description: 'Exported budget version'
       },
       accounts: [],
@@ -2370,27 +2384,22 @@ app.get('/api/export', authenticateToken, (req, res) => {
       settings: [],
       expenseTags: []
     };
-    
+
     // Export accounts
     db.all('SELECT * FROM accounts WHERE user_id = ? AND version_id = ?', [userId, versionId], (err, accounts) => {
       if (!err) exportData.accounts = accounts;
-      
       // Export income
       db.all('SELECT * FROM income WHERE user_id = ? AND version_id = ?', [userId, versionId], (err, income) => {
         if (!err) exportData.income = income;
-        
         // Export expenses
         db.all('SELECT * FROM expenses WHERE user_id = ? AND version_id = ?', [userId, versionId], (err, expenses) => {
           if (!err) exportData.expenses = expenses;
-          
           // Export tags
           db.all('SELECT * FROM tags WHERE user_id = ? AND version_id = ?', [userId, versionId], (err, tags) => {
             if (!err) exportData.tags = tags;
-            
             // Export settings
             db.all('SELECT * FROM settings WHERE user_id = ? AND version_id = ?', [userId, versionId], (err, settings) => {
               if (!err) exportData.settings = settings;
-              
               // Export expense-tag relationships
               db.all(`
                 SELECT et.expense_id, et.tag_id, t.name as tag_name 
@@ -2400,13 +2409,10 @@ app.get('/api/export', authenticateToken, (req, res) => {
                 WHERE e.user_id = ? AND e.version_id = ?
               `, [userId, versionId], (err, expenseTags) => {
                 if (!err) exportData.expenseTags = expenseTags;
-                
                 // Set response headers for file download
                 res.setHeader('Content-Type', 'application/json');
                 res.setHeader('Content-Disposition', `attachment; filename="budget-export-${new Date().toISOString().split('T')[0]}.json"`);
-                
                 console.log(`Exported data for user ${userId}: ${exportData.accounts.length} accounts, ${exportData.income.length} income, ${exportData.expenses.length} expenses, ${exportData.tags.length} tags, ${exportData.settings.length} settings, ${exportData.expenseTags.length} expense-tag relationships`);
-                
                 res.json(exportData);
               });
             });

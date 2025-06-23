@@ -147,8 +147,8 @@ const Expenses = () => {
 
   type SortField = keyof Expense | 'amountPerFrequency';
 
-  const [sortField, setSortField] = useState<SortField>('description');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [sortField, setSortField] = useState<SortField>('amountPerFrequency');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
   const [calculatedForm, setCalculatedForm] = useState<{
     description: string;
@@ -1020,22 +1020,6 @@ const Expenses = () => {
                       <Box sx={{ display: 'flex', flexDirection: 'column' }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           {expense.description}
-                          {hiddenExpenses[expense.id] && (
-                            <Typography 
-                              variant="caption" 
-                              sx={{ 
-                                color: 'text.secondary', 
-                                fontStyle: 'italic',
-                                backgroundColor: 'grey.100',
-                                px: 1,
-                                py: 0.5,
-                                borderRadius: 1,
-                                fontSize: '0.7rem'
-                              }}
-                            >
-                              Hidden
-                            </Typography>
-                          )}
                         </Box>
                         {expense.notes && (
                           <Box 

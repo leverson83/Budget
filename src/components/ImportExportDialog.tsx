@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -15,6 +15,10 @@ import {
   ListItemText,
   ListItemIcon,
   TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import {
   Download as DownloadIcon,
@@ -35,6 +39,12 @@ interface ImportExportDialogProps {
   onDataChange: () => void;
 }
 
+interface Version {
+  id: number;
+  name: string;
+  is_active: number;
+}
+
 const ImportExportDialog: React.FC<ImportExportDialogProps> = ({ 
   open, 
   onClose, 
@@ -46,6 +56,32 @@ const ImportExportDialog: React.FC<ImportExportDialogProps> = ({
   const [importData, setImportData] = useState<any>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [versionName, setVersionName] = useState('Imported Version');
+  const [versions, setVersions] = useState<Version[]>([]);
+  const [selectedVersionId, setSelectedVersionId] = useState<number | ''>('');
+
+  // Fetch available versions when dialog opens
+  useEffect(() => {
+    if (open) {
+      fetchVersions();
+    }
+  }, [open]);
+
+  const fetchVersions = async () => {
+    try {
+      const response = await apiCall('/versions');
+      if (response.ok) {
+        const versionsData = await response.json();
+        setVersions(versionsData);
+        // Set default to active version
+        const activeVersion = versionsData.find((v: Version) => v.is_active === 1);
+        if (activeVersion) {
+          setSelectedVersionId(activeVersion.id);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching versions:', error);
+    }
+  };
 
   const handleExport = async () => {
     setLoading(true);
@@ -53,7 +89,13 @@ const ImportExportDialog: React.FC<ImportExportDialogProps> = ({
     setSuccess('');
 
     try {
-      const response = await apiCall('/export', {
+      // Build the export URL with version ID if selected
+      let exportUrl = '/export';
+      if (selectedVersionId !== '') {
+        exportUrl += `?versionId=${selectedVersionId}`;
+      }
+
+      const response = await apiCall(exportUrl, {
         method: 'GET',
       });
 
@@ -209,8 +251,25 @@ const ImportExportDialog: React.FC<ImportExportDialogProps> = ({
             Export Data
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Export your current budget data as a JSON file. This includes all accounts, income, expenses, tags, and settings.
+            Export your budget data as a JSON file. This includes all accounts, income, expenses, tags, and settings.
           </Typography>
+          
+          <FormControl fullWidth sx={{ mb: 2 }}>
+            <InputLabel id="version-select-label">Version to Export</InputLabel>
+            <Select
+              labelId="version-select-label"
+              value={selectedVersionId}
+              label="Version to Export"
+              onChange={(e) => setSelectedVersionId(e.target.value as number)}
+            >
+              {versions.map((version) => (
+                <MenuItem key={version.id} value={version.id}>
+                  {version.name} {version.is_active === 1 ? '(Active)' : ''}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          
           <Button
             variant="contained"
             startIcon={loading ? <CircularProgress size={16} /> : <DownloadIcon />}
