@@ -7,7 +7,7 @@ import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew';
 import ArrowForwardIosIcon from '@mui/icons-material/ArrowForwardIos';
 import Tooltip from '@mui/material/Tooltip';
 import Grid from '@mui/material/Grid';
-import { eachDayOfInterval, format, isSameMonth, isToday, startOfMonth, endOfMonth, addDays, addWeeks, addMonths, addYears } from 'date-fns';
+import { eachDayOfInterval, format, isSameMonth, isToday, startOfMonth, endOfMonth, addDays, addWeeks, addMonths, addYears, subDays } from 'date-fns';
 import CircularProgress from '@mui/material/CircularProgress';
 import Alert from '@mui/material/Alert';
 import { apiCall } from '../utils/api';
@@ -212,50 +212,121 @@ const Schedule = () => {
 
   const addDatesForFrequency = (startDate: Date, frequency: string): Date[] => {
     const dates: Date[] = [];
-    let currentDate = new Date(startDate);
-    const endDate = addYears(currentDate, 1);
+    const today = new Date();
+    const nextDue = new Date(startDate);
+    
+    // Get the day of the week (0-6, where 0 is Sunday)
+    const dayOfWeek = nextDue.getDay();
+    // Get the month and day for date-based calculations
+    const month = nextDue.getMonth();
+    const day = nextDue.getDate();
 
+    // Calculate the last scheduled date (most recent past occurrence)
+    let lastScheduled: Date;
     switch (frequency) {
       case 'daily':
-        while (currentDate <= endDate) {
-          dates.push(new Date(currentDate));
-          currentDate = addDays(currentDate, 1);
+        lastScheduled = subDays(today, 1);
+        break;
+      case 'weekly': {
+        // Find the most recent occurrence of the same day of week
+        const daysSinceLast = (today.getDay() - dayOfWeek + 7) % 7;
+        lastScheduled = subDays(today, daysSinceLast || 7);
+        break;
+      }
+      case 'fortnightly':
+      case 'biweekly': {
+        // Find the most recent occurrence of the same day of week, 2 weeks apart
+        const daysSinceLast = (today.getDay() - dayOfWeek + 14) % 14;
+        lastScheduled = subDays(today, daysSinceLast || 14);
+        break;
+      }
+      case 'monthly': {
+        // Find the most recent occurrence of the same day of month
+        lastScheduled = new Date(today.getFullYear(), today.getMonth(), day);
+        if (lastScheduled > today) {
+          lastScheduled = new Date(today.getFullYear(), today.getMonth() - 1, day);
         }
         break;
-      case 'weekly':
-        while (currentDate <= endDate) {
-          dates.push(new Date(currentDate));
-          currentDate = addWeeks(currentDate, 1);
+      }
+      case 'quarterly': {
+        // Find the most recent occurrence of the same day in the quarter
+        const currentQuarter = Math.floor(today.getMonth() / 3);
+        const targetMonth = currentQuarter * 3 + (month % 3);
+        lastScheduled = new Date(today.getFullYear(), targetMonth, day);
+        if (lastScheduled > today) {
+          lastScheduled = new Date(today.getFullYear(), targetMonth - 3, day);
         }
+        break;
+      }
+      case 'annually': {
+        // Find the most recent occurrence of the same month and day
+        lastScheduled = new Date(today.getFullYear(), month, day);
+        if (lastScheduled > today) {
+          lastScheduled = new Date(today.getFullYear() - 1, month, day);
+        }
+        break;
+      }
+      default:
+        lastScheduled = today;
+    }
+
+    // Calculate the next scheduled date based on the last scheduled date
+    let nextScheduled: Date;
+    switch (frequency) {
+      case 'daily':
+        nextScheduled = addDays(lastScheduled, 1);
+        break;
+      case 'weekly':
+        nextScheduled = addDays(lastScheduled, 7);
         break;
       case 'fortnightly':
       case 'biweekly':
-        while (currentDate <= endDate) {
-          dates.push(new Date(currentDate));
-          currentDate = addWeeks(currentDate, 2);
-        }
+        nextScheduled = addDays(lastScheduled, 14);
         break;
       case 'monthly':
-        while (currentDate <= endDate) {
-          dates.push(new Date(currentDate));
-          currentDate = addMonths(currentDate, 1);
-        }
+        nextScheduled = new Date(lastScheduled.getFullYear(), lastScheduled.getMonth() + 1, lastScheduled.getDate());
         break;
       case 'quarterly':
-        while (currentDate <= endDate) {
-          dates.push(new Date(currentDate));
-          currentDate = addMonths(currentDate, 3);
-        }
+        nextScheduled = new Date(lastScheduled.getFullYear(), lastScheduled.getMonth() + 3, lastScheduled.getDate());
         break;
       case 'annually':
-        while (currentDate <= endDate) {
-          dates.push(new Date(currentDate));
-          currentDate = addYears(currentDate, 1);
-        }
+        nextScheduled = new Date(lastScheduled.getFullYear() + 1, lastScheduled.getMonth(), lastScheduled.getDate());
         break;
       default:
-        console.warn(`Invalid frequency: ${frequency}`);
-        break;
+        nextScheduled = today;
+    }
+
+    // Generate dates starting from the next scheduled date
+    let currentDate = new Date(nextScheduled);
+    const endDate = addYears(today, 1);
+
+    while (currentDate <= endDate) {
+      dates.push(new Date(currentDate));
+      
+      // Calculate the next occurrence
+      switch (frequency) {
+        case 'daily':
+          currentDate = addDays(currentDate, 1);
+          break;
+        case 'weekly':
+          currentDate = addDays(currentDate, 7);
+          break;
+        case 'fortnightly':
+        case 'biweekly':
+          currentDate = addDays(currentDate, 14);
+          break;
+        case 'monthly':
+          currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, currentDate.getDate());
+          break;
+        case 'quarterly':
+          currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 3, currentDate.getDate());
+          break;
+        case 'annually':
+          currentDate = new Date(currentDate.getFullYear() + 1, currentDate.getMonth(), currentDate.getDate());
+          break;
+        default:
+          currentDate = addDays(currentDate, 1);
+      }
     }
 
     return dates;
