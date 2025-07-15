@@ -1053,8 +1053,11 @@ const Expenses = () => {
                 </TableRow>
               ))}
               <TableRow>
-                <TableCell colSpan={8} align="right">
+                <TableCell colSpan={7} align="right">
                   <strong>Total</strong>
+                </TableCell>
+                <TableCell align="center">
+                  <strong>{filteredExpenses.reduce((sum, expense) => sum + calculatePercentage(expense.amount, expense.frequency), 0).toFixed(1)}%</strong>
                 </TableCell>
                 <TableCell align="right">
                   <strong>{formatCurrency(filteredExpenses.reduce((total, expense) => 
