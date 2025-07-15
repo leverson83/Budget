@@ -27,6 +27,7 @@ import {
   Logout as LogoutIcon,
   Layers as LayersIcon,
   Lock as LockIcon,
+  TrackChanges as TrackChangesIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useSettings } from '../contexts/SettingsContext';
@@ -47,6 +48,7 @@ const Sidebar = () => {
 
   const baseMenuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/' },
+    { text: 'OnTrack', icon: <TrackChangesIcon />, path: '/ontrack' },
     { text: 'Income', icon: <AttachMoneyIcon />, path: '/income' },
     { text: 'Expenses', icon: <AccountBalanceIcon />, path: '/expenses' },
   ];
