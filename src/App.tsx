@@ -8,6 +8,7 @@ import Settings from './components/Settings';
 import Expenses from './components/Expenses';
 import Accounts from './components/Accounts';
 import Planning from './components/Planning';
+import OnTrack from './components/OnTrack';
 import Login from './components/Login';
 import { FrequencyProvider } from './contexts/FrequencyContext';
 import { SettingsProvider } from './contexts/SettingsContext';
@@ -177,6 +178,23 @@ const MainApp = () => {
                   }}
                 >
                   <Planning />
+                </Box>
+              </Box>
+            </ProtectedRoute>
+          } />
+          <Route path="/ontrack" element={
+            <ProtectedRoute>
+              <Box sx={{ display: 'flex' }}>
+                <Sidebar />
+                <Box
+                  component="main"
+                  sx={{
+                    flex: 1,
+                    minHeight: '100vh',
+                    bgcolor: 'background.default'
+                  }}
+                >
+                  <OnTrack />
                 </Box>
               </Box>
             </ProtectedRoute>
