@@ -34,11 +34,13 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
 
 // Database setup
-const db = new sqlite3.Database(path.join(__dirname, 'budget.db'), (err) => {
+const dbPath = process.env.BUDGET_DB_PATH || path.join(__dirname, 'budget.db');
+const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
     console.error('Error opening database:', err);
   } else {
     console.log('Connected to SQLite database');
+    console.log(`Database path: ${dbPath}`);
     // Create tables
     db.serialize(() => {
       // Create users table first (if it doesn't exist)
@@ -154,6 +156,7 @@ const db = new sqlite3.Database(path.join(__dirname, 'budget.db'), (err) => {
           applyFuzziness INTEGER DEFAULT 0,
           notes TEXT,
           accountId INTEGER,
+          manualWithdrawalsOnly INTEGER DEFAULT 0,
           FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
           FOREIGN KEY (version_id) REFERENCES budget_versions(id) ON DELETE CASCADE,
           FOREIGN KEY (accountId) REFERENCES accounts(id) ON DELETE SET NULL
@@ -271,6 +274,35 @@ const db = new sqlite3.Database(path.join(__dirname, 'budget.db'), (err) => {
           FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
         )
       `);
+
+      // Create transfers table for account disbursement settings
+      db.run(`
+        CREATE TABLE IF NOT EXISTS transfers (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          version_id INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          percentage REAL NOT NULL,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (version_id) REFERENCES budget_versions(id) ON DELETE CASCADE
+        )
+      `);
+
+      // Create forecast_settings table
+      db.run(`
+        CREATE TABLE IF NOT EXISTS forecast_settings (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          version_id INTEGER NOT NULL,
+          selected_accounts TEXT,
+          warning_line REAL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(user_id, version_id),
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (version_id) REFERENCES budget_versions(id) ON DELETE CASCADE
+        )
+      `);
     });
   }
 });
@@ -303,6 +335,35 @@ const ensureManualAdjustmentsDescriptionColumn = () => {
   });
 };
 ensureManualAdjustmentsDescriptionColumn();
+
+// Ensure expenses table has manualWithdrawalsOnly column
+// Add column if it does not exist
+const ensureExpensesManualWithdrawalsOnlyColumn = () => {
+  db.all("PRAGMA table_info(expenses)", (err, columns) => {
+    if (err) {
+      console.log('Error checking expenses table structure:', err);
+      return;
+    }
+    if (!columns || columns.length === 0) {
+      console.log('expenses table does not exist yet');
+      return;
+    }
+    const hasManualWithdrawalsOnly = columns.some(col => col.name === 'manualWithdrawalsOnly');
+    if (!hasManualWithdrawalsOnly) {
+      console.log('Adding manualWithdrawalsOnly column to expenses table');
+      db.run("ALTER TABLE expenses ADD COLUMN manualWithdrawalsOnly INTEGER DEFAULT 0", (err) => {
+        if (err) {
+          console.log('Error adding manualWithdrawalsOnly column:', err);
+        } else {
+          console.log('Successfully added manualWithdrawalsOnly column to expenses table');
+        }
+      });
+    } else {
+      console.log('manualWithdrawalsOnly column already exists in expenses table');
+    }
+  });
+};
+ensureExpensesManualWithdrawalsOnlyColumn();
 
 // Function to create sample data for a user
 function createSampleDataForUser(userId) {
@@ -455,7 +516,9 @@ function createDefaultVersionForUser(userId) {
             yearly: 1
           })],
           ['ignoreWeekends', false],
-          ['frequency', 'monthly']
+          ['frequency', 'monthly'],
+          ['disbursementFrequency', 'monthly'],
+          ['disbursementDay', 1]
         ];
         
         const stmt = db.prepare('INSERT OR IGNORE INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)');
@@ -617,7 +680,9 @@ app.post('/api/auth/login', (req, res) => {
                   yearly: 1
                 })],
                 ['ignoreWeekends', false],
-                ['frequency', 'monthly']
+                ['frequency', 'monthly'],
+                ['disbursementFrequency', 'monthly'],
+                ['disbursementDay', 1]
               ];
               const stmt = db.prepare('INSERT OR IGNORE INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)');
               defaultSettings.forEach(([key, value]) => {
@@ -751,7 +816,9 @@ app.post('/api/auth/set-password', (req, res) => {
                         yearly: 1
                       })],
                       ['ignoreWeekends', false],
-                      ['frequency', 'monthly']
+                      ['frequency', 'monthly'],
+                      ['disbursementFrequency', 'monthly'],
+                      ['disbursementDay', 1]
                     ];
                     const stmt = db.prepare('INSERT OR IGNORE INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)');
                     defaultSettings.forEach(([key, value]) => {
@@ -890,7 +957,9 @@ app.post('/api/auth/register', (req, res) => {
                             yearly: 1
                           })],
                           ['ignoreWeekends', false],
-                          ['frequency', 'monthly']
+                          ['frequency', 'monthly'],
+                          ['disbursementFrequency', 'monthly'],
+                          ['disbursementDay', 1]
                         ];
                         const stmt = db.prepare('INSERT OR IGNORE INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)');
                         defaultSettings.forEach(([key, value]) => {
@@ -968,7 +1037,9 @@ app.post('/api/auth/register', (req, res) => {
                   yearly: 1
                 })],
                 ['ignoreWeekends', false],
-                ['frequency', 'monthly']
+                ['frequency', 'monthly'],
+                ['disbursementFrequency', 'monthly'],
+                ['disbursementDay', 1]
               ];
               const stmt = db.prepare('INSERT OR IGNORE INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)');
               defaultSettings.forEach(([key, value]) => {
@@ -1153,7 +1224,9 @@ app.post('/api/versions', authenticateToken, (req, res) => {
                   yearly: 1
                 })],
                 ['ignoreWeekends', false],
-                ['frequency', 'monthly']
+                ['frequency', 'monthly'],
+                ['disbursementFrequency', 'monthly'],
+                ['disbursementDay', 1]
               ];
               
               const stmt = db.prepare('INSERT INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)');
@@ -1609,6 +1682,7 @@ app.get('/api/expenses', authenticateToken, (req, res) => {
     const processedRows = rows.map(row => ({
       ...row,
       applyFuzziness: Boolean(row.applyFuzziness),
+      manualWithdrawalsOnly: Boolean(row.manualWithdrawalsOnly),
       tags: row.tags ? row.tags.split(',').filter(Boolean) : []
     }));
     res.json(processedRows);
@@ -1617,14 +1691,14 @@ app.get('/api/expenses', authenticateToken, (req, res) => {
 
 // Add new expense entry
 app.post('/api/expenses', authenticateToken, (req, res) => {
-  const { id, description, amount, frequency, nextDue, applyFuzziness, notes, tags, accountId } = req.body;
+  const { id, description, amount, frequency, nextDue, applyFuzziness, notes, tags, accountId, manualWithdrawalsOnly } = req.body;
   
   if (!id || !description || !amount || !frequency || !nextDue) {
     res.status(400).json({ error: 'Missing required fields' });
     return;
   }
 
-  console.log('Creating expense with data:', { id, description, amount, frequency, nextDue, applyFuzziness, notes, tags, accountId });
+  console.log('Creating expense with data:', { id, description, amount, frequency, nextDue, applyFuzziness, notes, tags, accountId, manualWithdrawalsOnly });
 
   // Get the active version ID
   db.get('SELECT id FROM budget_versions WHERE user_id = ? AND is_active = 1', [req.user.userId], (err, version) => {
@@ -1642,8 +1716,8 @@ app.post('/api/expenses', authenticateToken, (req, res) => {
 
     // Insert expense
     db.run(
-        'INSERT INTO expenses (id, user_id, version_id, description, amount, frequency, nextDue, applyFuzziness, notes, accountId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [id, req.user.userId, version.id, description, amount, frequency, nextDue, applyFuzziness ? 1 : 0, notes || null, accountId || null],
+        'INSERT INTO expenses (id, user_id, version_id, description, amount, frequency, nextDue, applyFuzziness, notes, accountId, manualWithdrawalsOnly) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [id, req.user.userId, version.id, description, amount, frequency, nextDue, applyFuzziness ? 1 : 0, notes || null, accountId || null, manualWithdrawalsOnly ? 1 : 0],
       function(err) {
         if (err) {
           console.error('Error creating expense:', err);
@@ -1735,7 +1809,7 @@ app.post('/api/expenses', authenticateToken, (req, res) => {
 
 // Update expense entry
 app.put('/api/expenses/:id', authenticateToken, (req, res) => {
-  const { description, amount, frequency, nextDue, applyFuzziness, notes, tags, accountId } = req.body;
+  const { description, amount, frequency, nextDue, applyFuzziness, notes, tags, accountId, manualWithdrawalsOnly } = req.body;
   const { id } = req.params;
 
   if (!description || !amount || !frequency || !nextDue) {
@@ -1743,15 +1817,15 @@ app.put('/api/expenses/:id', authenticateToken, (req, res) => {
     return;
   }
 
-  console.log('Updating expense with data:', { id, description, amount, frequency, nextDue, applyFuzziness, notes, tags, accountId });
+  console.log('Updating expense with data:', { id, description, amount, frequency, nextDue, applyFuzziness, notes, tags, accountId, manualWithdrawalsOnly });
 
   db.serialize(() => {
     db.run('BEGIN TRANSACTION');
 
     // Update expense
     db.run(
-      'UPDATE expenses SET description = ?, amount = ?, frequency = ?, nextDue = ?, applyFuzziness = ?, notes = ?, accountId = ? WHERE id = ? AND user_id = ?',
-      [description, amount, frequency, nextDue, applyFuzziness ? 1 : 0, notes || null, accountId || null, id, req.user.userId],
+      'UPDATE expenses SET description = ?, amount = ?, frequency = ?, nextDue = ?, applyFuzziness = ?, notes = ?, accountId = ?, manualWithdrawalsOnly = ? WHERE id = ? AND user_id = ?',
+      [description, amount, frequency, nextDue, applyFuzziness ? 1 : 0, notes || null, accountId || null, manualWithdrawalsOnly ? 1 : 0, id, req.user.userId],
       function(err) {
         if (err) {
           console.error('Error updating expense:', err);
@@ -1967,7 +2041,9 @@ app.get('/api/settings', authenticateToken, (req, res) => {
       frequency: 'monthly',
       showPlanningPage: true,
       showSchedulePage: true,
-      showAccountsPage: true
+      showAccountsPage: true,
+      disbursementFrequency: 'monthly',
+      disbursementDay: 1
     };
 
     // Convert rows to object
@@ -2031,6 +2107,80 @@ app.post('/api/settings/frequency', authenticateToken, (req, res) => {
       res.json({ frequency });
     }
   );
+  });
+});
+
+// Get disbursement settings
+app.get('/api/settings/disbursement', authenticateToken, (req, res) => {
+  // Get the active version ID
+  db.get('SELECT id FROM budget_versions WHERE user_id = ? AND is_active = 1', [req.user.userId], (err, version) => {
+    if (err) {
+      console.error('Error getting active version:', err);
+      return res.status(500).json({ error: err.message });
+    }
+
+    if (!version) {
+      return res.status(400).json({ error: 'No active version found. Please create a version first.' });
+    }
+
+    db.get('SELECT value FROM settings WHERE user_id = ? AND version_id = ? AND key = ?', [req.user.userId, version.id, 'disbursementFrequency'], (err, disbursementFreqRow) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      db.get('SELECT value FROM settings WHERE user_id = ? AND version_id = ? AND key = ?', [req.user.userId, version.id, 'disbursementDay'], (err, disbursementDayRow) => {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+        
+        res.json({
+          disbursementFrequency: disbursementFreqRow?.value || 'monthly',
+          disbursementDay: parseInt(disbursementDayRow?.value || '1')
+        });
+      });
+    });
+  });
+});
+
+// Update disbursement settings
+app.post('/api/settings/disbursement', authenticateToken, (req, res) => {
+  const { disbursementFrequency, disbursementDay } = req.body;
+  
+  if (!disbursementFrequency || disbursementDay === undefined) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+  
+  // Get the active version ID
+  db.get('SELECT id FROM budget_versions WHERE user_id = ? AND is_active = 1', [req.user.userId], (err, version) => {
+    if (err) {
+      console.error('Error getting active version:', err);
+      return res.status(500).json({ error: err.message });
+    }
+
+    if (!version) {
+      return res.status(400).json({ error: 'No active version found. Please create a version first.' });
+    }
+
+    db.serialize(() => {
+      db.run('BEGIN TRANSACTION');
+      
+      const stmt1 = db.prepare('INSERT OR REPLACE INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)');
+      const stmt2 = db.prepare('INSERT OR REPLACE INTO settings (user_id, version_id, key, value) VALUES (?, ?, ?, ?)');
+      
+      stmt1.run(req.user.userId, version.id, 'disbursementFrequency', disbursementFrequency);
+      stmt2.run(req.user.userId, version.id, 'disbursementDay', disbursementDay.toString());
+      
+      stmt1.finalize();
+      stmt2.finalize();
+      
+      db.run('COMMIT', (err) => {
+        if (err) {
+          console.error('Error updating disbursement settings:', err);
+          return res.status(500).json({ error: err.message });
+        }
+        res.json({ disbursementFrequency, disbursementDay });
+      });
+    });
   });
 });
 
@@ -2140,6 +2290,357 @@ app.post('/api/settings/transfers', authenticateToken, (req, res) => {
     });
   });
 });
+
+// Balance forecasting endpoint
+app.get('/api/balance-forecast', authenticateToken, (req, res) => {
+  // Parse time period parameters
+  const pastMonths = parseInt(req.query.pastMonths) || 1;
+  const futureMonths = parseInt(req.query.futureMonths) || 3;
+  
+  console.log('Balance forecast request:', {
+    query: req.query,
+    pastMonths,
+    futureMonths,
+    userId: req.user.userId
+  });
+  
+  // Validate parameters
+  if (pastMonths < 1 || pastMonths > 3) {
+    return res.status(400).json({ error: 'Past months must be between 1 and 3' });
+  }
+  if (futureMonths < 1 || futureMonths > 12) {
+    return res.status(400).json({ error: 'Future months must be between 1 and 12' });
+  }
+  
+  // Get the active version ID
+  db.get('SELECT id FROM budget_versions WHERE user_id = ? AND is_active = 1', [req.user.userId], (err, version) => {
+    if (err) {
+      console.error('Error getting active version:', err);
+      return res.status(500).json({ error: err.message });
+    }
+    if (!version) {
+      return res.status(400).json({ error: 'No active version found.' });
+    }
+    // Get all required data for balance calculation
+    db.serialize(() => {
+      db.all('SELECT * FROM accounts WHERE user_id = ? AND version_id = ? ORDER BY isPrimary DESC, name', [req.user.userId, version.id], (err, accounts) => {
+        if (err) return res.status(500).json({ error: err.message });
+        db.all('SELECT * FROM income WHERE user_id = ? AND version_id = ?', [req.user.userId, version.id], (err, incomes) => {
+          if (err) return res.status(500).json({ error: err.message });
+          db.all('SELECT * FROM expenses WHERE user_id = ? AND version_id = ?', [req.user.userId, version.id], (err, expenses) => {
+            if (err) return res.status(500).json({ error: err.message });
+            // Convert integer booleans to actual booleans for balance forecast
+            const processedExpenses = expenses.map(expense => ({
+              ...expense,
+              applyFuzziness: Boolean(expense.applyFuzziness),
+              manualWithdrawalsOnly: Boolean(expense.manualWithdrawalsOnly)
+            }));
+            db.all('SELECT * FROM manual_adjustments WHERE user_id = ? AND version_id = ?', [req.user.userId, version.id], (err, manualAdjustments) => {
+              if (err) return res.status(500).json({ error: err.message });
+              db.get('SELECT value FROM settings WHERE user_id = ? AND version_id = ? AND key = ?', [req.user.userId, version.id, 'disbursementFrequency'], (err, disbursementFreqRow) => {
+                if (err) return res.status(500).json({ error: err.message });
+                db.get('SELECT value FROM settings WHERE user_id = ? AND version_id = ? AND key = ?', [req.user.userId, version.id, 'disbursementDay'], (err, disbursementDayRow) => {
+                  if (err) return res.status(500).json({ error: err.message });
+                  // Calculate balance forecast with custom time period
+                  const forecast = calculateBalanceForecast(
+                    accounts,
+                    incomes,
+                    processedExpenses,
+                    manualAdjustments,
+                    disbursementFreqRow?.value || 'monthly',
+                    parseInt(disbursementDayRow?.value || '1'),
+                    pastMonths,
+                    futureMonths
+                  );
+                  res.json(forecast);
+                });
+              });
+            });
+          });
+        });
+      });
+    });
+  });
+});
+
+// Helper function to calculate balance forecast
+function calculateBalanceForecast(accounts, incomes, expenses, manualAdjustments, disbursementFrequency, disbursementDay, pastMonths = 1, futureMonths = 3) {
+  const today = new Date();
+  
+  // Calculate start date (past months)
+  const startDate = new Date(today);
+  startDate.setMonth(today.getMonth() - pastMonths);
+  
+  // Calculate end date (future months)
+  const endDate = new Date(today);
+  endDate.setMonth(today.getMonth() + futureMonths);
+  
+  // Debug logging
+  console.log('Balance forecast date range:', {
+    today: today.toISOString().split('T')[0],
+    startDate: startDate.toISOString().split('T')[0],
+    endDate: endDate.toISOString().split('T')[0],
+    pastMonths,
+    futureMonths,
+    totalDays: Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)),
+    disbursementFrequency,
+    disbursementDay
+  });
+  
+  // Debug logging for expenses
+  console.log('Expenses being processed:', expenses.map(exp => ({
+    id: exp.id,
+    description: exp.description,
+    accountId: exp.accountId,
+    manualWithdrawalsOnly: exp.manualWithdrawalsOnly,
+    amount: exp.amount,
+    frequency: exp.frequency
+  })));
+  
+  const primaryAccount = accounts.find(acc => acc.isPrimary);
+  if (!primaryAccount) {
+    return { error: 'No primary account found' };
+  }
+  
+  // Initialize account balances
+  const accountBalances = {};
+  accounts.forEach(account => {
+    accountBalances[account.id] = account.currentBalance;
+  });
+  
+  const forecast = [];
+  const currentDate = new Date(startDate);
+  
+  while (currentDate <= endDate) {
+    const dateStr = currentDate.toISOString().split('T')[0];
+    const dayBalances = { date: dateStr, accounts: {} };
+    
+    // Copy current balances
+    Object.keys(accountBalances).forEach(accountId => {
+      dayBalances.accounts[accountId] = accountBalances[accountId];
+    });
+    
+    // Process income (goes to primary account)
+    incomes.forEach(income => {
+      if (isDue(income, currentDate)) {
+        const amount = Number(income.amount);
+        accountBalances[primaryAccount.id] += amount;
+        dayBalances.accounts[primaryAccount.id] = accountBalances[primaryAccount.id];
+        
+        // Debug logging for income
+        console.log(`Income processed on ${dateStr}:`, {
+          income: income.description,
+          amount,
+          newBalance: accountBalances[primaryAccount.id]
+        });
+      }
+    });
+    
+    // Process disbursements (from primary to other accounts based on their allocated expenses)
+    if (isDisbursementDay(currentDate, disbursementFrequency, disbursementDay)) {
+      console.log(`Disbursement day detected on ${dateStr}:`, {
+        frequency: disbursementFrequency,
+        day: disbursementDay,
+        currentDayOfWeek: currentDate.getDay()
+      });
+      // For each non-primary account, sum all expenses (including manual-only) due between this disbursement day and the next
+      const nextDisbursementDate = new Date(currentDate);
+      // Find the next disbursement day
+      let foundNext = false;
+      let searchDate = new Date(currentDate);
+      while (!foundNext) {
+        searchDate.setDate(searchDate.getDate() + 1);
+        if (isDisbursementDay(searchDate, disbursementFrequency, disbursementDay) || searchDate > endDate) {
+          foundNext = true;
+        }
+      }
+      // For each non-primary account
+      accounts.forEach(account => {
+        if (account.id === primaryAccount.id) return;
+        let sum = 0;
+        expenses.forEach(expense => {
+          if (expense.accountId === account.id) {
+            // Use the helper to count occurrences
+            const occurrences = countExpenseOccurrencesInPeriod(expense, currentDate, searchDate);
+            sum += occurrences * Number(expense.amount);
+          }
+        });
+        if (sum > 0) {
+          accountBalances[primaryAccount.id] -= sum;
+          accountBalances[account.id] += sum;
+          dayBalances.accounts[primaryAccount.id] = accountBalances[primaryAccount.id];
+          dayBalances.accounts[account.id] = accountBalances[account.id];
+          // Debug logging for disbursement
+          console.log(`Disbursement on ${dateStr}:`, {
+            fromAccount: primaryAccount.id,
+            toAccount: account.id,
+            amount: sum,
+            primaryBalance: accountBalances[primaryAccount.id],
+            targetBalance: accountBalances[account.id]
+          });
+        }
+      });
+    }
+    
+    // Process all expenses (both primary and non-primary accounts)
+    expenses.forEach(expense => {
+      const isDueToday = isDue(expense, currentDate);
+      const shouldProcess = isDueToday && !expense.manualWithdrawalsOnly;
+      
+      if (isDueToday) {
+        console.log(`Expense due check on ${dateStr}: ${expense.description}`, {
+          isDue: isDueToday,
+          manualWithdrawalsOnly: expense.manualWithdrawalsOnly,
+          willProcess: shouldProcess
+        });
+      }
+      
+      if (shouldProcess) {
+        const accountId = expense.accountId || primaryAccount.id;
+        const amount = Number(expense.amount);
+        accountBalances[accountId] -= amount;
+        dayBalances.accounts[accountId] = accountBalances[accountId];
+        
+        // Debug logging for expense processing
+        console.log(`Expense processed on ${dateStr}:`, {
+          expense: expense.description,
+          accountId,
+          amount,
+          newBalance: accountBalances[accountId]
+        });
+      }
+    });
+    
+    // Process manual adjustments
+    manualAdjustments.forEach(adjustment => {
+      if (adjustment.date === dateStr) {
+        if (adjustment.type === 'deposit') {
+          accountBalances[adjustment.account_id] += Number(adjustment.amount);
+        } else {
+          accountBalances[adjustment.account_id] -= Number(adjustment.amount);
+        }
+        dayBalances.accounts[adjustment.account_id] = accountBalances[adjustment.account_id];
+      }
+    });
+    
+    forecast.push(dayBalances);
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+  
+  return {
+    forecast,
+    accounts: accounts.map(acc => ({ id: acc.id, name: acc.name, isPrimary: acc.isPrimary }))
+  };
+}
+
+function isDue(item, date) {
+  // Handles both income and expense
+  const freq = item.frequency;
+  const nextDue = new Date(item.nextDue);
+  
+  // Debug logging (only for specific dates to reduce noise)
+  if (date.getDate() === 15 || date.getDate() === 1) { // Only log on 1st and 15th
+    console.log(`Checking if due: ${item.description} (${freq})`, {
+      date: date.toISOString().split('T')[0],
+      nextDue: nextDue.toISOString().split('T')[0],
+      dateBeforeNextDue: date < nextDue,
+      result: false // Will be set below
+    });
+  }
+  
+  if (date < nextDue) return false;
+  
+  let result = false;
+  switch (freq) {
+    case 'daily': 
+      result = true;
+      break;
+    case 'weekly': 
+      result = date.getDay() === nextDue.getDay();
+      break;
+    case 'fortnightly': {
+      const diff = Math.floor((date - nextDue) / (1000 * 60 * 60 * 24));
+      result = diff % 14 === 0;
+      break;
+    }
+    case 'monthly': 
+      result = date.getDate() === nextDue.getDate();
+      break;
+    case 'quarterly': 
+      result = date.getDate() === nextDue.getDate() && [0, 3, 6, 9].includes(date.getMonth());
+      break;
+    case 'yearly': 
+      result = date.getDate() === nextDue.getDate() && date.getMonth() === nextDue.getMonth();
+      break;
+    default: 
+      result = false;
+  }
+  
+  // Update debug log with result
+  if (date.getDate() === 15 || date.getDate() === 1) {
+    console.log(`isDue result for ${item.description}: ${result}`);
+  }
+  return result;
+}
+
+function isDisbursementDay(date, frequency, day) {
+  switch (frequency) {
+    case 'daily': return true;
+    case 'weekly': return date.getDay() === (day % 7);
+    case 'fortnightly': {
+      const start = new Date(date.getFullYear(), 0, 1);
+      const diff = Math.floor((date - start) / (1000 * 60 * 60 * 24));
+      return diff % 14 === 0 && date.getDay() === (day % 7);
+    }
+    case 'monthly': return date.getDate() === day;
+    case 'quarterly': {
+      const month = date.getMonth();
+      const quarterStartMonth = Math.floor(month / 3) * 3;
+      const quarterDate = new Date(date.getFullYear(), quarterStartMonth, day);
+      return date.toDateString() === quarterDate.toDateString();
+    }
+    case 'yearly': return date.getMonth() === 0 && date.getDate() === day;
+    default: return false;
+  }
+}
+
+function calculateTotalIncomeForPeriod(incomes, frequency) {
+  return incomes.reduce((total, income) => {
+    const amount = Number(income.amount);
+    const incomeFreq = income.frequency;
+    let annualAmount = amount;
+    switch (incomeFreq) {
+      case 'daily': annualAmount = amount * 365; break;
+      case 'weekly': annualAmount = amount * 52; break;
+      case 'fortnightly': annualAmount = amount * 26; break;
+      case 'monthly': annualAmount = amount * 12; break;
+      case 'quarterly': annualAmount = amount * 4; break;
+      case 'yearly': annualAmount = amount; break;
+    }
+    switch (frequency) {
+      case 'daily': return total + (annualAmount / 365);
+      case 'weekly': return total + (annualAmount / 52);
+      case 'fortnightly': return total + (annualAmount / 26);
+      case 'monthly': return total + (annualAmount / 12);
+      case 'quarterly': return total + (annualAmount / 4);
+      case 'yearly': return total + annualAmount;
+      default: return total + annualAmount;
+    }
+  }, 0);
+}
+
+// Helper: count how many times an expense is due between two dates
+function countExpenseOccurrencesInPeriod(expense, startDate, endDate) {
+  let count = 0;
+  let checkDate = new Date(startDate);
+  while (checkDate < endDate) {
+    if (isDue(expense, checkDate)) {
+      count++;
+    }
+    checkDate.setDate(checkDate.getDate() + 1);
+  }
+  return count;
+}
 
 // Accounts API endpoints
 app.get('/api/accounts', authenticateToken, (req, res) => {
@@ -2461,7 +2962,14 @@ app.get('/api/export', authenticateToken, (req, res) => {
         if (!err) exportData.income = income;
         // Export expenses
         db.all('SELECT * FROM expenses WHERE user_id = ? AND version_id = ?', [userId, versionId], (err, expenses) => {
-          if (!err) exportData.expenses = expenses;
+          if (!err) {
+            // Convert integer booleans to actual booleans for export
+            exportData.expenses = expenses.map(expense => ({
+              ...expense,
+              applyFuzziness: Boolean(expense.applyFuzziness),
+              manualWithdrawalsOnly: Boolean(expense.manualWithdrawalsOnly)
+            }));
+          }
           // Export tags
           db.all('SELECT * FROM tags WHERE user_id = ? AND version_id = ?', [userId, versionId], (err, tags) => {
             if (!err) exportData.tags = tags;
@@ -2618,8 +3126,8 @@ app.post('/api/import', authenticateToken, (req, res) => {
                       newAccountId = accountIdMapping.get(expense.accountId);
                     }
                     db.run(
-                      'INSERT INTO expenses (id, user_id, version_id, description, amount, frequency, nextDue, applyFuzziness, notes, accountId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                      [newExpenseId, userId, versionId, expense.description, expense.amount, expense.frequency, expense.nextDue, expense.applyFuzziness, expense.notes, newAccountId],
+                      'INSERT INTO expenses (id, user_id, version_id, description, amount, frequency, nextDue, applyFuzziness, notes, accountId, manualWithdrawalsOnly) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                      [newExpenseId, userId, versionId, expense.description, expense.amount, expense.frequency, expense.nextDue, expense.applyFuzziness, expense.notes, newAccountId, expense.manualWithdrawalsOnly ? 1 : 0],
                       function(err) {
                         if (!err) {
                           expenseIdMapping.set(expense.id, newExpenseId);
@@ -2916,5 +3424,48 @@ app.listen(port, () => {
   console.log(`Server running at http://localhost:${port}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`JWT Secret: ${JWT_SECRET ? 'Set' : 'Not set'}`);
-  console.log(`Database path: ${path.join(__dirname, 'budget.db')}`);
+  console.log(`Database path: ${dbPath}`);
+});
+
+// GET forecast settings
+app.get('/api/forecast-settings', authenticateToken, (req, res) => {
+  db.get('SELECT id FROM budget_versions WHERE user_id = ? AND is_active = 1', [req.user.userId], (err, version) => {
+    if (err || !version) return res.status(400).json({ error: 'No active version found.' });
+    db.get('SELECT * FROM forecast_settings WHERE user_id = ? AND version_id = ?', [req.user.userId, version.id], (err, row) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!row) {
+        console.log('[forecast-settings][GET] No row found for user', req.user.userId, 'version', version.id);
+        return res.json({ selectedAccounts: null, warningLine: null });
+      }
+      console.log('[forecast-settings][GET] Returning:', {
+        selectedAccounts: row.selected_accounts,
+        warningLine: row.warning_line
+      });
+      res.json({
+        selectedAccounts: row.selected_accounts ? JSON.parse(row.selected_accounts) : null,
+        warningLine: row.warning_line || null
+      });
+    });
+  });
+});
+
+// POST forecast settings
+app.post('/api/forecast-settings', authenticateToken, (req, res) => {
+  const { selectedAccounts, warningLine } = req.body;
+  console.log('[forecast-settings][POST] Saving:', { selectedAccounts, warningLine, user: req.user.userId });
+  db.get('SELECT id FROM budget_versions WHERE user_id = ? AND is_active = 1', [req.user.userId], (err, version) => {
+    if (err || !version) return res.status(400).json({ error: 'No active version found.' });
+    db.run(`
+      INSERT INTO forecast_settings (user_id, version_id, selected_accounts, warning_line, updated_at)
+      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(user_id, version_id) DO UPDATE SET
+        selected_accounts=excluded.selected_accounts,
+        warning_line=excluded.warning_line,
+        updated_at=CURRENT_TIMESTAMP
+    `, [req.user.userId, version.id, JSON.stringify(selectedAccounts), warningLine], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      console.log('[forecast-settings][POST] Saved for user', req.user.userId, 'version', version.id);
+      res.json({ success: true });
+    });
+  });
 }); 

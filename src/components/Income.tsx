@@ -36,6 +36,7 @@ import { useFrequency } from '../contexts/FrequencyContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { v4 as uuidv4 } from 'uuid';
 import { apiCall } from '../utils/api';
+import ManualAdjustmentModal from './ManualAdjustmentModal';
 
 interface IncomeEntry {
   id: string;
@@ -89,6 +90,8 @@ const Income = () => {
     startDate: new Date().toISOString().split('T')[0],
     amounts: [{ value: '', frequency: frequency }],
   });
+  const [manualAdjustmentOpen, setManualAdjustmentOpen] = useState(false);
+  const [manualAdjustmentAccounts, setManualAdjustmentAccounts] = useState([]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -113,6 +116,12 @@ const Income = () => {
 
   useEffect(() => {
     fetchData();
+    // Fetch accounts for manual adjustment modal
+    apiCall('/accounts').then(async (res) => {
+      if (res.ok) {
+        setManualAdjustmentAccounts(await res.json());
+      }
+    });
   }, []);
 
   // Listen for version changes and refresh data
@@ -440,6 +449,21 @@ const Income = () => {
     }
   };
 
+  const handleManualAdjustmentSave = async (data: any) => {
+    try {
+      const response = await apiCall('/manual-adjustments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error('Failed to save manual adjustment');
+      setManualAdjustmentOpen(false);
+      fetchData();
+    } catch (err) {
+      alert('Failed to save manual adjustment');
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
@@ -488,6 +512,14 @@ const Income = () => {
             aria-expanded={Boolean(anchorEl) ? 'true' : undefined}
           >
             Add Income
+          </Button>
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<AddIcon />}
+            onClick={() => setManualAdjustmentOpen(true)}
+          >
+            Manual Adjustment
           </Button>
           <Menu
             id="add-income-menu"
@@ -802,6 +834,14 @@ const Income = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <ManualAdjustmentModal
+        open={manualAdjustmentOpen}
+        onClose={() => setManualAdjustmentOpen(false)}
+        onSave={handleManualAdjustmentSave}
+        accounts={manualAdjustmentAccounts}
+        allowedType="deposit"
+      />
     </Box>
   );
 };

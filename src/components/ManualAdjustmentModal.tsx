@@ -16,11 +16,12 @@ interface ManualAdjustmentModalProps {
   onClose: () => void;
   onSave: (data: { account_id: number; type: 'withdrawal' | 'deposit'; amount: number; date: string; description: string }) => void;
   accounts: Account[];
+  allowedType?: 'deposit' | 'withdrawal';
 }
 
-const ManualAdjustmentModal: React.FC<ManualAdjustmentModalProps> = ({ open, onClose, onSave, accounts }) => {
+const ManualAdjustmentModal: React.FC<ManualAdjustmentModalProps> = ({ open, onClose, onSave, accounts, allowedType }) => {
   const [accountId, setAccountId] = useState<number | ''>('');
-  const [type, setType] = useState<'withdrawal' | 'deposit'>('withdrawal');
+  const [type, setType] = useState<'withdrawal' | 'deposit'>(allowedType || 'withdrawal');
   const [amount, setAmount] = useState<number | ''>('');
   const [date, setDate] = useState<Dayjs | null>(dayjs());
   const [description, setDescription] = useState('');
@@ -52,7 +53,7 @@ const ManualAdjustmentModal: React.FC<ManualAdjustmentModalProps> = ({ open, onC
       description: description.trim(),
     });
     setAccountId('');
-    setType('withdrawal');
+    setType(allowedType || 'withdrawal');
     setAmount('');
     setDate(dayjs());
     setDescription('');
@@ -60,7 +61,7 @@ const ManualAdjustmentModal: React.FC<ManualAdjustmentModalProps> = ({ open, onC
 
   const handleClose = () => {
     setAccountId('');
-    setType('withdrawal');
+    setType(allowedType || 'withdrawal');
     setAmount('');
     setDate(dayjs());
     setDescription('');
@@ -92,9 +93,14 @@ const ManualAdjustmentModal: React.FC<ManualAdjustmentModalProps> = ({ open, onC
               value={type}
               label="Type"
               onChange={e => setType(e.target.value as 'withdrawal' | 'deposit')}
+              disabled={!!allowedType}
             >
-              <MenuItem value="withdrawal">Withdrawal</MenuItem>
-              <MenuItem value="deposit">Deposit</MenuItem>
+              {(!allowedType || allowedType === 'withdrawal') && (
+                <MenuItem value="withdrawal">Withdrawal</MenuItem>
+              )}
+              {(!allowedType || allowedType === 'deposit') && (
+                <MenuItem value="deposit">Deposit</MenuItem>
+              )}
             </Select>
           </FormControl>
           <TextField

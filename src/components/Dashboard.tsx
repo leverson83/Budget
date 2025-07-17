@@ -8,6 +8,7 @@ import { useFrequency } from '../contexts/FrequencyContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { apiCall } from '../utils/api';
 import { useNavigate } from 'react-router-dom';
+import BalanceForecast from './BalanceForecast';
 import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Visibility as VisibilityIcon, VisibilityOff as VisibilityOffIcon, TrendingUp as TrendingUpIcon, TrendingDown as TrendingDownIcon, AccountBalance as AccountBalanceIcon, AttachMoney as AttachMoneyIcon, Schedule as ScheduleIcon, Settings as SettingsIcon, PieChart as PieChartIcon, BarChart as BarChartIcon, CalendarToday as CalendarTodayIcon, Info as InfoIcon, Warning as WarningIcon, CheckCircle as CheckCircleIcon, Error as ErrorIcon, Star as StarIcon, StarBorder as StarBorderIcon, Share as ShareIcon, ContentCopy as ContentCopyIcon, MoreVert as MoreVertIcon, Menu as MenuIcon, Close as CloseIcon, Save as SaveIcon, Cancel as CancelIcon, Refresh as RefreshIcon, Download as DownloadIcon, Upload as UploadIcon, Print as PrintIcon, Email as EmailIcon, Phone as PhoneIcon, LocationOn as LocationOnIcon, AccessTime as AccessTimeIcon, DateRange as DateRangeIcon, Today as TodayIcon, Event as EventIcon, Notifications as NotificationsIcon, NotificationsActive as NotificationsActiveIcon, NotificationsNone as NotificationsNoneIcon, NotificationsOff as NotificationsOffIcon, NotificationsPaused as NotificationsPausedIcon, NotificationsNoneOutlined as NotificationsNoneOutlinedIcon, NotificationsActiveOutlined as NotificationsActiveOutlinedIcon, NotificationsOffOutlined as NotificationsOffOutlinedIcon, NotificationsPausedOutlined as NotificationsPausedOutlinedIcon, NotificationsNoneRounded as NotificationsNoneRoundedIcon, NotificationsActiveRounded as NotificationsActiveRoundedIcon, NotificationsOffRounded as NotificationsOffRoundedIcon, NotificationsPausedRounded as NotificationsPausedRoundedIcon, NotificationsNoneSharp as NotificationsNoneSharpIcon, NotificationsActiveSharp as NotificationsActiveSharpIcon, NotificationsOffSharp as NotificationsOffSharpIcon, NotificationsPausedSharp as NotificationsPausedSharpIcon, NotificationsNoneTwoTone as NotificationsNoneTwoToneIcon, NotificationsActiveTwoTone as NotificationsActiveTwoToneIcon, NotificationsOffTwoTone as NotificationsOffTwoToneIcon, NotificationsPausedTwoTone as NotificationsPausedTwoToneIcon } from '@mui/icons-material';
 import { format, parseISO, addDays, subDays, startOfDay, endOfDay, isWithinInterval, isSameDay, differenceInDays, addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isWeekend, isMonday, isTuesday, isWednesday, isThursday, isFriday, isSaturday, isSunday, getDay, getWeek, getMonth, getYear, getQuarter, getISOWeek, getISOWeekYear } from 'date-fns';
 import { useAuth } from '../contexts/AuthContext';
@@ -833,6 +834,11 @@ const Dashboard = () => {
             </Typography>
           </Box>
         )}
+      </Box>
+
+      {/* Balance Forecast */}
+      <Box sx={{ mt: 6 }}>
+        <BalanceForecast />
       </Box>
 
       <Dialog 

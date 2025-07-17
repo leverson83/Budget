@@ -44,6 +44,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { v4 as uuidv4 } from 'uuid';
 import { apiCall } from '../utils/api';
 import { useSearchParams } from 'react-router-dom';
+import ManualAdjustmentModal from './ManualAdjustmentModal';
 
 interface Expense {
   id: string;
@@ -57,6 +58,7 @@ interface Expense {
   tags: string[];
   calculatedAmounts?: { value: string; frequency: Frequency }[];
   isCalculated: boolean;
+  manualWithdrawalsOnly?: boolean;
 }
 
 interface Account {
@@ -78,6 +80,7 @@ interface ExpenseFormData {
   accountId: number | '';
   notes: string;
   tags: string[];
+  manualWithdrawalsOnly: boolean;
 }
 
 interface ExpenseResponse {
@@ -92,6 +95,7 @@ interface ExpenseResponse {
   tags?: string[];
   isCalculated?: boolean;
   calculatedAmounts?: { value: string; frequency: Frequency }[];
+  manualWithdrawalsOnly?: boolean;
 }
 
 interface Tag {
@@ -133,6 +137,7 @@ const Expenses = () => {
     accountId: '',
     notes: "",
     tags: [],
+    manualWithdrawalsOnly: false,
   });
   const [editingId, setEditingId] = useState<number | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -144,6 +149,8 @@ const Expenses = () => {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [openCalc, setOpenCalc] = useState(false);
   const [hiddenExpenses, setHiddenExpenses] = useState<{[key: string]: boolean}>({});
+  const [manualAdjustmentOpen, setManualAdjustmentOpen] = useState(false);
+  const [manualAdjustmentAccounts, setManualAdjustmentAccounts] = useState<Account[]>([]);
 
   type SortField = keyof Expense | 'amountPerFrequency';
 
@@ -188,13 +195,14 @@ const Expenses = () => {
       }
       const data = await expensesResponse.json() as ExpenseResponse[];
       const processedExpenses: Expense[] = data.map((expense) => {
-        const { isCalculated, calculatedAmounts, tags, ...rest } = expense;
+        const { isCalculated, calculatedAmounts, tags, manualWithdrawalsOnly, ...rest } = expense;
         return {
           ...rest,
         nextDue: new Date(expense.nextDue),
         tags: tags || [],
         isCalculated: Boolean(isCalculated),
         calculatedAmounts: (calculatedAmounts ?? []) as { value: string; frequency: Frequency }[],
+        manualWithdrawalsOnly: manualWithdrawalsOnly || false,
         };
       });
       setExpenses(processedExpenses);
@@ -257,6 +265,12 @@ const Expenses = () => {
 
   useEffect(() => {
     fetchData();
+    // Fetch accounts for manual adjustment modal
+    apiCall('/accounts').then(async (res) => {
+      if (res.ok) {
+        setManualAdjustmentAccounts(await res.json());
+      }
+    });
   }, []);
 
   // Listen for version changes and refresh data
@@ -317,13 +331,14 @@ const Expenses = () => {
       }
       const data = await response.json() as ExpenseResponse[];
       const processedExpenses: Expense[] = data.map((expense) => {
-        const { isCalculated, calculatedAmounts, tags, ...rest } = expense;
+        const { isCalculated, calculatedAmounts, tags, manualWithdrawalsOnly, ...rest } = expense;
         return {
           ...rest,
         nextDue: new Date(expense.nextDue),
           tags: tags || [],
           isCalculated: Boolean(isCalculated),
           calculatedAmounts: (calculatedAmounts ?? []) as { value: string; frequency: Frequency }[],
+          manualWithdrawalsOnly: manualWithdrawalsOnly || false,
         };
       });
       setExpenses(processedExpenses);
@@ -386,8 +401,11 @@ const Expenses = () => {
         nextDue: formData.startDate,
         notes: formData.notes,
         accountId: formData.accountId === '' ? null : formData.accountId,
-        tags: formData.tags || []
+        tags: formData.tags || [],
+        manualWithdrawalsOnly: formData.manualWithdrawalsOnly
       };
+
+      console.log('Frontend sending expense data:', expenseData);
 
       if (editingExpense) {
         const response = await apiCall(`/expenses/${editingExpense.id}`, {
@@ -429,6 +447,7 @@ const Expenses = () => {
 
   const handleOpen = (expense?: Expense) => {
     if (expense) {
+      console.log('Opening expense for editing:', expense);
       setEditingExpense(expense);
       setFormData({
         description: expense.description,
@@ -439,6 +458,7 @@ const Expenses = () => {
         accountId: expense.accountId || '',
         notes: expense.notes || "",
         tags: expense.tags || [],
+        manualWithdrawalsOnly: expense.manualWithdrawalsOnly || false,
       });
     } else {
       setEditingExpense(null);
@@ -451,6 +471,7 @@ const Expenses = () => {
         accountId: '',
         notes: "",
         tags: [],
+        manualWithdrawalsOnly: false,
       });
     }
     setOpen(true);
@@ -468,6 +489,7 @@ const Expenses = () => {
       notes: "",
       accountId: '',
       tags: [],
+      manualWithdrawalsOnly: false,
     });
   };
 
@@ -697,6 +719,7 @@ const Expenses = () => {
       accountId: '',
       notes: "",
       tags: [],
+      manualWithdrawalsOnly: false,
     });
     setOpen(true);
   };
@@ -823,6 +846,21 @@ const Expenses = () => {
     setOpenCalc(false);
   };
 
+  const handleManualAdjustmentSave = async (data) => {
+    try {
+      const response = await apiCall('/manual-adjustments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error('Failed to save manual adjustment');
+      setManualAdjustmentOpen(false);
+      fetchData();
+    } catch (err) {
+      alert('Failed to save manual adjustment');
+    }
+  };
+
   if (loading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
@@ -940,6 +978,14 @@ const Expenses = () => {
               aria-expanded={Boolean(anchorEl) ? 'true' : undefined}
             >
               Add Expense
+            </Button>
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={<AddIcon />}
+              onClick={() => setManualAdjustmentOpen(true)}
+            >
+              Manual Adjustment
             </Button>
             <Menu
               id="add-expense-menu"
@@ -1180,6 +1226,16 @@ const Expenses = () => {
                 fullWidth
                 InputLabelProps={{ shrink: true }}
               />
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <Checkbox
+                  checked={formData.manualWithdrawalsOnly}
+                  onChange={(e) => setFormData({ ...formData, manualWithdrawalsOnly: e.target.checked })}
+                  color="primary"
+                />
+                <Typography variant="body2" color="text.secondary">
+                  Manual withdrawals only (long-term savings - no automatic withdrawals on due dates)
+                </Typography>
+              </Box>
             </Box>
           </DialogContent>
           <DialogActions>
@@ -1344,6 +1400,14 @@ const Expenses = () => {
           <Button onClick={handleSaveCalculatedExpense} variant="contained">Save</Button>
         </DialogActions>
       </Dialog>
+
+      <ManualAdjustmentModal
+        open={manualAdjustmentOpen}
+        onClose={() => setManualAdjustmentOpen(false)}
+        onSave={handleManualAdjustmentSave}
+        accounts={manualAdjustmentAccounts}
+        allowedType="withdrawal"
+      />
     </Box>
   );
 };
