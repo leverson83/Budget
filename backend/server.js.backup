@@ -264,7 +264,6 @@ const db = new sqlite3.Database(path.join(__dirname, 'budget.db'), (err) => {
           type TEXT NOT NULL CHECK (type IN ('withdrawal', 'deposit')),
           amount REAL NOT NULL,
           date TEXT NOT NULL,
-          description TEXT DEFAULT '',
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
           FOREIGN KEY (version_id) REFERENCES budget_versions(id) ON DELETE CASCADE,
@@ -274,35 +273,6 @@ const db = new sqlite3.Database(path.join(__dirname, 'budget.db'), (err) => {
     });
   }
 });
-
-// Ensure manual_adjustments table has a description column
-// Add column if it does not exist
-const ensureManualAdjustmentsDescriptionColumn = () => {
-  db.all("PRAGMA table_info(manual_adjustments)", (err, columns) => {
-    if (err) {
-      console.log('Error checking manual_adjustments table structure:', err);
-      return;
-    }
-    if (!columns || columns.length === 0) {
-      console.log('manual_adjustments table does not exist yet');
-      return;
-    }
-    const hasDescription = columns.some(col => col.name === 'description');
-    if (!hasDescription) {
-      console.log('Adding description column to manual_adjustments table');
-      db.run("ALTER TABLE manual_adjustments ADD COLUMN description TEXT DEFAULT ''", (err) => {
-        if (err) {
-          console.log('Error adding description column:', err);
-        } else {
-          console.log('Successfully added description column to manual_adjustments table');
-        }
-      });
-    } else {
-      console.log('Description column already exists in manual_adjustments table');
-    }
-  });
-};
-ensureManualAdjustmentsDescriptionColumn();
 
 // Function to create sample data for a user
 function createSampleDataForUser(userId) {
@@ -2762,8 +2732,8 @@ app.post('/api/import', authenticateToken, (req, res) => {
                       return;
                     }
                     db.run(
-                      'INSERT INTO manual_adjustments (user_id, version_id, account_id, type, amount, date, description) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                      [userId, versionId, newAccountId, adj.type, adj.amount, adj.date, adj.description],
+                      'INSERT INTO manual_adjustments (user_id, version_id, account_id, type, amount, date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                      [userId, versionId, newAccountId, adj.type, adj.amount, adj.date, adj.created_at || new Date().toISOString()],
                       function(err) {
                         processed++;
                         if (processed === importData.manualAdjustments.length) resolve();
@@ -2819,43 +2789,6 @@ app.post('/api/import', authenticateToken, (req, res) => {
   });
 });
 
-// Manual Adjustments API
-app.get('/api/manual-adjustments', authenticateToken, (req, res) => {
-  db.get('SELECT id FROM budget_versions WHERE user_id = ? AND is_active = 1', [req.user.userId], (err, version) => {
-    if (err || !version) {
-      return res.status(400).json({ error: 'No active version found.' });
-    }
-    db.all(
-      'SELECT * FROM manual_adjustments WHERE user_id = ? AND version_id = ? ORDER BY date',
-      [req.user.userId, version.id],
-      (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
-      }
-    );
-  });
-});
-
-app.post('/api/manual-adjustments', authenticateToken, (req, res) => {
-  const { account_id, type, amount, date, description = '' } = req.body;
-  if (!account_id || !['withdrawal', 'deposit'].includes(type) || typeof amount !== 'number' || !date) {
-    return res.status(400).json({ error: 'Missing or invalid fields.' });
-  }
-  db.get('SELECT id FROM budget_versions WHERE user_id = ? AND is_active = 1', [req.user.userId], (err, version) => {
-    if (err || !version) {
-      return res.status(400).json({ error: 'No active version found.' });
-    }
-    db.run(
-      'INSERT INTO manual_adjustments (user_id, version_id, account_id, type, amount, date, description) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [req.user.userId, version.id, account_id, type, amount, date, description],
-      function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ id: this.lastID });
-      }
-    );
-  });
-});
-
 // Catch-all handler: send back React's index.html file for any non-API routes
 app.get('*', (req, res) => {
   // Don't serve index.html for API routes
@@ -2879,3 +2812,52 @@ app.listen(port, () => {
   console.log(`JWT Secret: ${JWT_SECRET ? 'Set' : 'Not set'}`);
   console.log(`Database path: ${path.join(__dirname, 'budget.db')}`);
 }); 
+
+// Income endpoints
+
+// Manual Adjustments API
+app.get('/api/manual-adjustments', authenticateToken, (req, res) => {
+  // Get active version
+  db.get('SELECT id FROM budget_versions WHERE user_id = ? AND is_active = 1', [req.user.userId], (err, version) => {
+    if (err || !version) {
+      return res.status(400).json({ error: 'No active version found.' });
+    }
+    db.all(
+      'SELECT * FROM manual_adjustments WHERE user_id = ? AND version_id = ? ORDER BY date',
+      [req.user.userId, version.id],
+      (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+      }
+    );
+  });
+});
+
+app.post('/api/manual-adjustments', authenticateToken, (req, res) => {
+  const { account_id, type, amount, date } = req.body;
+  if (!account_id || !['withdrawal', 'deposit'].includes(type) || typeof amount !== 'number' || !date) {
+    return res.status(400).json({ error: 'Missing or invalid fields.' });
+  }
+  db.get('SELECT id FROM budget_versions WHERE user_id = ? AND is_active = 1', [req.user.userId], (err, version) => {
+    if (err || !version) {
+      return res.status(400).json({ error: 'No active version found.' });
+    }
+    db.run(
+      'INSERT INTO manual_adjustments (user_id, version_id, account_id, type, amount, date) VALUES (?, ?, ?, ?, ?, ?)',
+      [req.user.userId, version.id, account_id, type, amount, date],
+      function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ id: this.lastID });
+      }
+    );
+  });
+});
+
+// Catch-all handler: send back React's index.html file for any non-API routes
+app.get('*', (req, res) => {
+  // Don't serve index.html for API routes
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  res.sendFile(path.join(__dirname, '../public/index.html'));
+});

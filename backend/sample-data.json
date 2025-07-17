@@ -10,6 +10,7 @@
       "requiredBalance": 6269.1,
       "isPrimary": 0,
       "diff": -1269.1000000000004,
+      "includeInOnTrack": 1,
       "user_id": 1,
       "version_id": 1
     },
@@ -21,6 +22,7 @@
       "requiredBalance": 0,
       "isPrimary": 1,
       "diff": 1000,
+      "includeInOnTrack": 1,
       "user_id": 1,
       "version_id": 1
     },
@@ -32,6 +34,7 @@
       "requiredBalance": 961.54,
       "isPrimary": 0,
       "diff": 238.46000000000004,
+      "includeInOnTrack": 1,
       "user_id": 1,
       "version_id": 1
     },
@@ -43,6 +46,7 @@
       "requiredBalance": 504.81,
       "isPrimary": 0,
       "diff": -100,
+      "includeInOnTrack": 1,
       "user_id": 1,
       "version_id": 1
     },
@@ -54,6 +58,7 @@
       "requiredBalance": 1948.0800000000002,
       "isPrimary": 0,
       "diff": 51.919999999999845,
+      "includeInOnTrack": 1,
       "user_id": 1,
       "version_id": 1
     },
@@ -65,6 +70,7 @@
       "requiredBalance": 500,
       "isPrimary": 0,
       "diff": -200,
+      "includeInOnTrack": 1,
       "user_id": 1,
       "version_id": 1
     },
@@ -76,6 +82,7 @@
       "requiredBalance": 1261.38,
       "isPrimary": 0,
       "diff": -61.38000000000011,
+      "includeInOnTrack": 1,
       "user_id": 1,
       "version_id": 1
     },
@@ -87,6 +94,7 @@
       "requiredBalance": 75,
       "isPrimary": 0,
       "diff": 25,
+      "includeInOnTrack": 1,
       "user_id": 1,
       "version_id": 1
     },
@@ -98,6 +106,7 @@
       "requiredBalance": 75,
       "isPrimary": 0,
       "diff": 125,
+      "includeInOnTrack": 1,
       "user_id": 1,
       "version_id": 1
     },
@@ -109,6 +118,7 @@
       "requiredBalance": 50,
       "isPrimary": 0,
       "diff": 450,
+      "includeInOnTrack": 1,
       "user_id": 1,
       "version_id": 1
     }

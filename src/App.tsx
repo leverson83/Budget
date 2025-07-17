@@ -1,5 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Box, CssBaseline, ThemeProvider, createTheme, CircularProgress } from '@mui/material';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import Income from './components/Income';
@@ -13,6 +15,7 @@ import Login from './components/Login';
 import { FrequencyProvider } from './contexts/FrequencyContext';
 import { SettingsProvider } from './contexts/SettingsContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { AutoUpdateProvider } from './contexts/AutoUpdateContext';
 
 const theme = createTheme({
   palette: {
@@ -75,9 +78,10 @@ const LoginPage = () => {
 // Main App Component
 const MainApp = () => {
   return (
-    <FrequencyProvider>
-      <SettingsProvider>
-        <Routes>
+    <AutoUpdateProvider>
+      <FrequencyProvider>
+        <SettingsProvider>
+          <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/" element={
             <ProtectedRoute>
@@ -220,6 +224,7 @@ const MainApp = () => {
         </Routes>
       </SettingsProvider>
     </FrequencyProvider>
+    </AutoUpdateProvider>
   );
 };
 
@@ -253,7 +258,9 @@ function App() {
     <AuthProvider>
       <ThemeProvider theme={theme}>
         <CssBaseline />
-        <AuthenticatedApp />
+        <LocalizationProvider dateAdapter={AdapterDayjs}>
+          <AuthenticatedApp />
+        </LocalizationProvider>
       </ThemeProvider>
     </AuthProvider>
   );

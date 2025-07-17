@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -21,7 +21,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  LinearProgress,
+
 } from '@mui/material';
 import { format, subDays, addDays, subMonths, addMonths, subWeeks, addWeeks, differenceInDays } from 'date-fns';
 import { API_URL, frequencies, type Frequency } from '../config';
@@ -56,11 +56,7 @@ const Planning = () => {
   const [selectedAccount, setSelectedAccount] = useState<string>('all');
   const [showUpdateAllModal, setShowUpdateAllModal] = useState(false);
   const [updateAllFrequency, setUpdateAllFrequency] = useState<string>('daily');
-  const [updateLog, setUpdateLog] = useState<string[]>([]);
-  const [showAutoUpdateModal, setShowAutoUpdateModal] = useState(false);
-  const logRef = useRef<HTMLDivElement>(null);
-  const [displayedLog, setDisplayedLog] = useState<string[]>([]);
-  const [showProgressBar, setShowProgressBar] = useState(false);
+
 
   useEffect(() => {
     const fetchData = async () => {
@@ -89,134 +85,9 @@ const Planning = () => {
     fetchData();
   }, []);
 
-  useEffect(() => {
-    // Fetch frequency from /settings/frequency and trigger update all on mount
-    const autoUpdateAll = async () => {
-      try {
-        const freqRes = await apiCall('/settings/frequency');
-        let freq = 'daily';
-        if (freqRes.ok) {
-          const data = await freqRes.json();
-          freq = data.frequency || 'daily';
-          setSelectedFrequency(freq);
-          setUpdateAllFrequency(freq);
-        }
-        setShowAutoUpdateModal(true);
-        setUpdateLog([`Starting required balance update for all accounts (frequency: ${freq})...`]);
-        for (const account of accounts) {
-          setUpdateLog((log: string[]) => [...log, `\nUpdating account: ${account.name} (${account.bank})`]);
-          let accountTotal = 0;
-          const accountExpenses = expenses.filter(e => e.accountId === account.id);
-          if (accountExpenses.length === 0) {
-            setUpdateLog((log: string[]) => [...log, '  No expenses for this account.']);
-          }
-          for (const expense of accountExpenses) {
-            const { lastScheduled } = calculateScheduledDates(expense.nextDue, expense.frequency);
-            // Use the frequency from /settings/frequency (freq) for both rate and periods
-            const rate = calculateRate(expense.amount, expense.frequency, freq);
-            const periods = calculateTimeSinceLastDueWithFrequency(lastScheduled, freq);
-            const accrued = parseFloat(calculateAccruedAmount(rate, periods));
-            accountTotal += accrued;
-            // Use freq for labels
-            const freqLabel = getFrequencyLabel(freq as Frequency).toLowerCase();
-            let perLabel = freqLabel;
-            if (freq === 'daily') perLabel = 'day';
-            else if (freq === 'weekly') perLabel = 'week';
-            else if (freq === 'monthly') perLabel = 'month';
-            else if (freq === 'quarterly') perLabel = 'quarter';
-            else if (freq === 'annually') perLabel = 'year';
-            let periodLabel = freqLabel;
-            if (freq === 'daily') periodLabel = 'days';
-            else if (freq === 'weekly') periodLabel = 'weeks';
-            else if (freq === 'monthly') periodLabel = 'months';
-            else if (freq === 'quarterly') periodLabel = 'quarters';
-            else if (freq === 'annually') periodLabel = 'years';
-            else if (!freqLabel.endsWith('s')) periodLabel = freqLabel + 's';
-            // Fix rate for fortnightly->weekly log
-            let logRate = rate;
-            let logAccrued = accrued;
-            if ((expense.frequency === 'biweekly' || expense.frequency === 'fortnightly') && freq === 'weekly') {
-              logRate = expense.amount * 26 / 52;
-              // periods should be 2 for 2 weeks, so accrued = amount
-              if (periods === 2) {
-                logAccrued = expense.amount;
-              } else {
-                logAccrued = logRate * periods;
-              }
-            }
-            setUpdateLog((log: string[]) => [
-              ...log,
-              `  - ${expense.description}: $${expense.amount.toFixed(2)} (${expense.frequency === 'biweekly' ? 'fortnightly' : expense.frequency}), Rate: $${logRate.toFixed(2)} per ${perLabel} x ${periods} ${periodLabel} = $${logAccrued.toFixed(2)}`
-            ]);
-          }
-          try {
-            const response = await apiCall(`/accounts/${account.id}`, {
-              method: 'PUT',
-              body: JSON.stringify({
-                name: account.name,
-                bank: account.bank,
-                currentBalance: account.currentBalance,
-                requiredBalance: accountTotal,
-                isPrimary: account.isPrimary,
-                diff: account.diff
-              })
-            });
-            if (response.ok) {
-              setUpdateLog((log: string[]) => [...log, `✔️ Updated ${account.name}: $${accountTotal.toFixed(2)}`, '--------------------']);
-            } else {
-              setUpdateLog((log: string[]) => [...log, `❌ Failed to update ${account.name}`]);
-            }
-          } catch (err) {
-            setUpdateLog((log: string[]) => [...log, `❌ Error updating ${account.name}`]);
-          }
-        }
-        setUpdateLog((log: string[]) => [...log, '\nAll updates complete.']);
-        // Refresh accounts data
-        const accountsResponse = await apiCall('/accounts');
-        if (accountsResponse.ok) {
-          const accountsData = await accountsResponse.json();
-          setAccounts(accountsData);
-        }
-      } catch (err) {
-        setUpdateLog((log: string[]) => [...log, '❌ Error during auto update.']);
-      }
-    };
-    if (accounts.length > 0 && expenses.length > 0) {
-      autoUpdateAll();
-    }
-    // eslint-disable-next-line
-  }, [accounts.length, expenses.length]);
 
-  // Animate log lines in modal
-  useEffect(() => {
-    if (!showAutoUpdateModal || updateLog.length === 0) {
-      setDisplayedLog([]);
-      return;
-    }
-    let cancelled = false;
-    // Only animate forward: start from 0 and incrementally add lines
-    setDisplayedLog([updateLog[0]]);
-    const totalDuration = 3000; // 3 seconds (much faster)
-    const interval = updateLog.length > 1 ? totalDuration / updateLog.length : totalDuration;
-    let idx = 1;
-    function showNext() {
-      if (cancelled) return;
-      setDisplayedLog((prev) => updateLog.slice(0, idx + 1));
-      idx++;
-      if (idx < updateLog.length) {
-        setTimeout(showNext, interval);
-      }
-    }
-    if (updateLog.length > 1) setTimeout(showNext, interval);
-    return () => { cancelled = true; };
-  }, [showAutoUpdateModal, updateLog]);
 
-  // Update the scroll-to-bottom logic to always scroll to the very bottom after each new line
-  useEffect(() => {
-    if (logRef.current) {
-      logRef.current.scrollTop = logRef.current.scrollHeight - logRef.current.clientHeight + 40;
-    }
-  }, [displayedLog]);
+
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -863,40 +734,7 @@ const Planning = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Add modal for auto update log */}
-      <Dialog open={showAutoUpdateModal} onClose={() => setShowAutoUpdateModal(false)} maxWidth="md" fullWidth
-        PaperProps={{
-          sx: { height: '80vh', display: 'flex', flexDirection: 'column' }
-        }}
-      >
-        <DialogTitle>Updating Required Balances</DialogTitle>
-        <DialogContent sx={{ flex: 1, minHeight: 0, p: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          {/* Progress Bar */}
-          <Box sx={{ width: '100%', p: 2, pt: 3, pb: 1, display: 'flex', alignItems: 'center', gap: 2 }}>
-            <LinearProgress
-              variant="determinate"
-              value={updateLog.length === 0 ? 0 : (displayedLog.length / updateLog.length) * 100}
-              sx={{ height: 8, borderRadius: 4, flex: 1 }}
-            />
-            <Typography variant="body2" sx={{ minWidth: 40, color: '#fff', fontFamily: 'monospace' }}>
-              {updateLog.length === 0 ? '0%' : `${Math.round((displayedLog.length / updateLog.length) * 100)}%`}
-            </Typography>
-          </Box>
-          <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', bgcolor: '#222', color: '#fff', fontFamily: 'monospace', p: 2 }} ref={logRef}>
-            {displayedLog.map((line, idx) => {
-              if (line.trim().startsWith('Total required for')) {
-                return (
-                  <div key={idx} style={{ fontWeight: 'bold', fontSize: '1.15rem', color: '#90caf9', margin: '8px 0' }}>{line}</div>
-                );
-              }
-              return <div key={idx}>{line}</div>;
-            })}
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setShowAutoUpdateModal(false)} variant="contained">OK</Button>
-        </DialogActions>
-      </Dialog>
+
     </Box>
   );
 };

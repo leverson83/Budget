@@ -43,6 +43,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { apiCall } from '../utils/api';
 import VersionManager from './VersionManager';
+import { format } from 'date-fns';
 
 const API_URL = 'http://localhost:3001/api';
 
@@ -71,6 +72,15 @@ interface User {
   name: string;
   email: string;
   admin: boolean;
+}
+
+interface ManualAdjustment {
+  id: number;
+  account_id: number;
+  type: 'withdrawal' | 'deposit';
+  amount: number;
+  date: string;
+  description: string;
 }
 
 const predefinedColors = [
@@ -126,12 +136,28 @@ const Settings = () => {
     admin: false,
   });
 
+  // Manual Adjustments state
+  const [manualAdjustments, setManualAdjustments] = useState<ManualAdjustment[]>([]);
+  const [manualAdjustmentsLoading, setManualAdjustmentsLoading] = useState(false);
+  const [manualAdjustmentEditDialogOpen, setManualAdjustmentEditDialogOpen] = useState(false);
+  const [manualAdjustmentDeleteDialogOpen, setManualAdjustmentDeleteDialogOpen] = useState(false);
+  const [editingManualAdjustment, setEditingManualAdjustment] = useState<ManualAdjustment | null>(null);
+  const [deletingManualAdjustment, setDeletingManualAdjustment] = useState<ManualAdjustment | null>(null);
+  const [manualAdjustmentForm, setManualAdjustmentForm] = useState<Partial<ManualAdjustment>>({
+    account_id: 0,
+    type: 'withdrawal',
+    amount: 0,
+    date: format(new Date(), 'yyyy-MM-dd'),
+    description: '',
+  });
+
   // Version manager state
   const [versionManagerOpen, setVersionManagerOpen] = useState(false);
 
   useEffect(() => {
     fetchTags();
     fetchAccounts();
+    fetchManualAdjustments();
     console.log('Settings component - Current user:', user);
     console.log('Settings component - user.admin:', user?.admin);
     if (user?.admin) {
@@ -207,6 +233,22 @@ const Settings = () => {
       console.error('Error fetching users:', error);
     } finally {
       setUsersLoading(false);
+    }
+  };
+
+  const fetchManualAdjustments = async () => {
+    try {
+      setManualAdjustmentsLoading(true);
+      const response = await apiCall('/manual-adjustments');
+      if (!response.ok) {
+        throw new Error('Failed to fetch manual adjustments');
+      }
+      const data = await response.json();
+      setManualAdjustments(data);
+    } catch (error) {
+      console.error('Error fetching manual adjustments:', error);
+    } finally {
+      setManualAdjustmentsLoading(false);
     }
   };
 
@@ -424,6 +466,102 @@ const Settings = () => {
     }
   };
 
+  // Manual Adjustment handlers
+  const handleManualAdjustmentEdit = (adjustment: ManualAdjustment) => {
+    setEditingManualAdjustment(adjustment);
+    setManualAdjustmentForm({
+      account_id: adjustment.account_id,
+      type: adjustment.type,
+      amount: adjustment.amount,
+      date: adjustment.date,
+      description: adjustment.description,
+    });
+    setManualAdjustmentEditDialogOpen(true);
+  };
+
+  const handleManualAdjustmentDelete = (adjustment: ManualAdjustment) => {
+    setDeletingManualAdjustment(adjustment);
+    setManualAdjustmentDeleteDialogOpen(true);
+  };
+
+  const handleManualAdjustmentSubmit = async () => {
+    if (!manualAdjustmentForm.account_id || !manualAdjustmentForm.type || !manualAdjustmentForm.amount || !manualAdjustmentForm.date) {
+      setSnackbar({ open: true, message: 'Please fill in all required fields' });
+      return;
+    }
+
+    try {
+      if (editingManualAdjustment) {
+        // Update existing adjustment
+        const response = await apiCall(`/manual-adjustments/${editingManualAdjustment.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(manualAdjustmentForm),
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to update manual adjustment');
+        }
+
+        setSnackbar({ open: true, message: 'Manual adjustment updated successfully' });
+      } else {
+        // Create new adjustment
+        const response = await apiCall('/manual-adjustments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(manualAdjustmentForm),
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to create manual adjustment');
+        }
+
+        setSnackbar({ open: true, message: 'Manual adjustment created successfully' });
+      }
+
+      setManualAdjustmentEditDialogOpen(false);
+      setEditingManualAdjustment(null);
+      setManualAdjustmentForm({
+        account_id: accounts.length > 0? accounts[0].id : 0,
+        type: 'withdrawal',
+        amount: 0,
+        date: format(new Date(), 'yyyy-MM-dd'),
+        description: '',
+      });
+      fetchManualAdjustments();
+    } catch (error) {
+      console.error('Error saving manual adjustment:', error);
+      setSnackbar({ open: true, message: 'Failed to save manual adjustment' });
+    }
+  };
+
+  const handleManualAdjustmentDeleteConfirm = async () => {
+    if (!deletingManualAdjustment) return;
+
+    try {
+      const response = await apiCall(`/manual-adjustments/${deletingManualAdjustment.id}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete manual adjustment');
+      }
+
+      setSnackbar({ open: true, message: 'Manual adjustment deleted successfully' });
+      setManualAdjustmentDeleteDialogOpen(false);
+      setDeletingManualAdjustment(null);
+      fetchManualAdjustments();
+    } catch (error) {
+      console.error('Error deleting manual adjustment:', error);
+      setSnackbar({ open: true, message: 'Failed to delete manual adjustment' });
+    }
+  };
+
+  const getAccountName = (accountId: number) => {
+    const account = accounts.find(acc => acc.id === accountId);
+    return account ? account.name : 'Unknown Account';
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" gutterBottom>
@@ -578,6 +716,110 @@ const Settings = () => {
                       </Typography>
                     )}
                   </List>
+                </Box>
+              )}
+            </AccordionDetails>
+          </Accordion>
+        </ListItem>
+        
+        <ListItem>
+          <Accordion sx={{ width: '100%' }}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography variant="h6" sx={{ fontWeight: 'bold', textDecoration: 'underline' }}>
+                Manual Adjustments
+              </Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              {manualAdjustmentsLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
+                  <CircularProgress />
+                </Box>
+              ) : (
+                <Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                    <Typography variant="h6" gutterBottom>
+                      Manage Manual Adjustments
+                    </Typography>
+                    <Button
+                      variant="contained"
+                      startIcon={<AddIcon />}
+                      onClick={() => {
+                        setEditingManualAdjustment(null);
+                        setManualAdjustmentForm({
+                          account_id: accounts.length > 0? accounts[0].id : 0,
+                          type: 'withdrawal',
+                          amount: 0,
+                          date: format(new Date(), 'yyyy-MM-dd'),
+                          description: '',
+                        });
+                        setManualAdjustmentEditDialogOpen(true);
+                      }}
+                    >
+                      Add Adjustment
+                    </Button>
+                  </Box>
+                  <TableContainer component={Paper} sx={{ maxHeight: 400 }}>
+                    <Table stickyHeader size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Date</TableCell>
+                          <TableCell>Account</TableCell>
+                          <TableCell>Type</TableCell>
+                          <TableCell align="right">Amount</TableCell>
+                          <TableCell>Description</TableCell>
+                          <TableCell align="center">Actions</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {manualAdjustments.map((adjustment) => (
+                          <TableRow key={adjustment.id}>
+                            <TableCell>{format(new Date(adjustment.date), 'MMM dd, yyyy')}</TableCell>
+                            <TableCell>{getAccountName(adjustment.account_id)}</TableCell>
+                            <TableCell>
+                              <Chip
+                                label={adjustment.type}
+                                color={adjustment.type === 'deposit' ? 'success' : 'error'}
+                                size="small"
+                              />
+                            </TableCell>
+                            <TableCell align="right">
+                              ${adjustment.amount.toFixed(2)}
+                            </TableCell>
+                            <TableCell>
+                              {adjustment.description || 'No description'}
+                            </TableCell>
+                            <TableCell align="center">
+                              <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleManualAdjustmentEdit(adjustment)}
+                                  color="primary"
+                                >
+                                  <EditIcon />
+                                </IconButton>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleManualAdjustmentDelete(adjustment)}
+                                  color="error"
+                                >
+                                  <DeleteIcon />
+                                </IconButton>
+                              </Box>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {manualAdjustments.length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={6} align="center">
+                              <Typography color="text.secondary">
+                                No manual adjustments found. Add your first adjustment to get started.
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
                 </Box>
               )}
             </AccordionDetails>
@@ -1016,6 +1258,113 @@ const Settings = () => {
         </DialogActions>
       </Dialog>
 
+      {/* Manual Adjustment Edit Dialog */}
+      <Dialog open={manualAdjustmentEditDialogOpen} onClose={() => setManualAdjustmentEditDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>{editingManualAdjustment ? 'Edit Manual Adjustment' : 'Add Manual Adjustment'}</DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt:2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <FormControl fullWidth>
+              <InputLabel>Account</InputLabel>
+              <Select
+                value={manualAdjustmentForm.account_id}
+                label="Account"
+                onChange={(e) => setManualAdjustmentForm({ ...manualAdjustmentForm, account_id: e.target.value as number })}
+              >
+                {accounts.map((account) => (
+                  <MenuItem key={account.id} value={account.id}>
+                    {account.name} ({account.bank})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            
+            <FormControl fullWidth>
+              <InputLabel>Type</InputLabel>
+              <Select
+                value={manualAdjustmentForm.type}
+                label="Type"
+                onChange={(e) => setManualAdjustmentForm({ ...manualAdjustmentForm, type: e.target.value as 'withdrawal' | 'deposit' })}
+              >
+                <MenuItem value="withdrawal">Withdrawal</MenuItem>
+                <MenuItem value="deposit">Deposit</MenuItem>
+              </Select>
+            </FormControl>
+            
+            <TextField
+              label="Amount"
+              type="number"
+              value={manualAdjustmentForm.amount}
+              onChange={(e) => setManualAdjustmentForm({ ...manualAdjustmentForm, amount: parseFloat(e.target.value) || 0 })}
+              fullWidth
+              required
+              inputProps={{ step: 0.01, min: 0 }}
+            />
+            
+            <TextField
+              label="Date"
+              type="date"
+              value={manualAdjustmentForm.date}
+              onChange={(e) => setManualAdjustmentForm({ ...manualAdjustmentForm, date: e.target.value })}
+              fullWidth
+              required
+              InputLabelProps={{ shrink: true }}
+            />
+            
+            <TextField
+              label="Description"
+              value={manualAdjustmentForm.description}
+              onChange={(e) => setManualAdjustmentForm({ ...manualAdjustmentForm, description: e.target.value })}
+              fullWidth
+              multiline
+              rows={3}
+              placeholder="Optional description for this adjustment"
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setManualAdjustmentEditDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleManualAdjustmentSubmit} variant="contained">
+            {editingManualAdjustment ? 'Update' : 'Add'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Manual Adjustment Delete Dialog */}
+      <Dialog open={manualAdjustmentDeleteDialogOpen} onClose={() => setManualAdjustmentDeleteDialogOpen(false)}>
+        <DialogTitle>Delete Manual Adjustment</DialogTitle>
+        <DialogContent>
+          {deletingManualAdjustment && (
+            <Box sx={{ pt: 2 }}>
+              <Typography gutterBottom>
+                Are you sure you want to delete this manual adjustment?
+              </Typography>
+              <Box sx={{ mt: 2, p: 2, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
+                <Typography variant="body2">
+                  <strong>Date:</strong> {format(new Date(deletingManualAdjustment.date), 'MMM dd, yyyy')}<br />
+                  <strong>Account:</strong> {getAccountName(deletingManualAdjustment.account_id)}<br />
+                  <strong>Type:</strong> {deletingManualAdjustment.type}<br />
+                  <strong>Amount:</strong> ${deletingManualAdjustment.amount.toFixed(2)}<br />
+                  {deletingManualAdjustment.description && (
+                    <>
+                      <strong>Description:</strong> {deletingManualAdjustment.description}
+                    </>
+                  )}
+                </Typography>
+              </Box>
+              <Alert severity="warning" sx={{ mt: 2 }}>
+                This action cannot be undone. The adjustment will be permanently deleted.
+              </Alert>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setManualAdjustmentDeleteDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleManualAdjustmentDeleteConfirm} color="error" variant="contained">
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Snackbar */}
       <Snackbar
         open={snackbar.open}
@@ -1032,6 +1381,7 @@ const Settings = () => {
           // Refresh all data when version changes
           fetchTags();
           fetchAccounts();
+          fetchManualAdjustments();
           if (user?.admin) {
             fetchUsers();
           }

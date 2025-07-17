@@ -10,6 +10,7 @@ import Grid from '@mui/material/Grid';
 import { eachDayOfInterval, format, isSameMonth, isToday, startOfMonth, endOfMonth, addDays, addWeeks, addMonths, addYears, subDays } from 'date-fns';
 import CircularProgress from '@mui/material/CircularProgress';
 import Alert from '@mui/material/Alert';
+import Snackbar from '@mui/material/Snackbar';
 import { apiCall } from '../utils/api';
 import Accordion from '@mui/material/Accordion';
 import AccordionSummary from '@mui/material/AccordionSummary';
@@ -19,6 +20,7 @@ import FormControlLabel from '@mui/material/FormControlLabel';
 import Checkbox from '@mui/material/Checkbox';
 import Button from '@mui/material/Button';
 import Divider from '@mui/material/Divider';
+import ManualAdjustmentModal from './ManualAdjustmentModal';
 
 const monthNames = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -53,6 +55,12 @@ interface Settings {
       fuzziness: number;
     };
   };
+}
+
+interface AccountEntry {
+  id: number;
+  name: string;
+  bank: string;
 }
 
 const API_URL = 'http://localhost:3001/api';
@@ -125,6 +133,23 @@ function getNextDueDates(income: IncomeEntry, startDate: Date, endDate: Date, ig
   return dueDates;
 }
 
+// Helper function to format currency with exactly2
+const formatCurrency = (amount: number): string => {
+  return `$${amount.toFixed(2)}`;
+};
+
+// Helper function to convert frequency terminology
+const formatFrequency = (frequency: string): string => {
+  switch (frequency) {
+    case 'biweekly':
+      return 'fortnightly';
+    case 'biweek':
+      return 'fortnight';
+    default:
+      return frequency;
+  }
+};
+
 const Schedule = () => {
   const today = new Date();
   const [startMonth, setStartMonth] = useState(today.getMonth());
@@ -137,6 +162,12 @@ const Schedule = () => {
   const [ignoreWeekends, setIgnoreWeekends] = useState(false);
   const [hiddenExpenses, setHiddenExpenses] = useState<{[key: string]: boolean}>({});
   const [showFilter, setShowFilter] = useState(false);
+  const [accounts, setAccounts] = useState<AccountEntry[]>([]);
+  const [manualAdjustments, setManualAdjustments] = useState<any[]>([]);
+  const [manualModalOpen, setManualModalOpen] = useState(false);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error' | 'info' | 'warning'>('info');
 
   const months = getMonthGrid(startMonth, startYear);
 
@@ -144,26 +175,35 @@ const Schedule = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [incomeRes, expensesRes, settingsRes, hiddenExpensesRes] = await Promise.all([
+        const [incomeRes, expensesRes, settingsRes, hiddenExpensesRes, accountsRes, manualAdjRes] = await Promise.all([
           apiCall('/income'),
           apiCall('/expenses?includeHidden=true'),
           apiCall('/settings'),
-          apiCall('/hidden-expenses')
+          apiCall('/hidden-expenses'),
+          apiCall('/accounts'),
+          apiCall('/manual-adjustments'),
         ]);
 
         if (!incomeRes.ok) throw new Error('Failed to fetch income');
         if (!expensesRes.ok) throw new Error('Failed to fetch expenses');
         if (!settingsRes.ok) throw new Error('Failed to fetch settings');
         if (!hiddenExpensesRes.ok) throw new Error('Failed to fetch hidden expenses');
+        if (!accountsRes.ok) throw new Error('Failed to fetch accounts');
+        if (!manualAdjRes.ok) throw new Error('Failed to fetch manual adjustments');
 
         const incomeData = await incomeRes.json();
         const expensesData = await expensesRes.json();
         const settingsData = await settingsRes.json();
         const hiddenExpensesData = await hiddenExpensesRes.json();
+        const accountsData = await accountsRes.json();
+        const manualAdjData = await manualAdjRes.json();
 
         setIncomes(incomeData.map((i: any) => ({ ...i, nextDue: new Date(i.nextDue) })));
         setExpenses(expensesData.map((e: any) => ({ ...e, nextDue: new Date(e.nextDue) })));
         setSettings(settingsData);
+        setAccounts(accountsData);
+        console.log('Fetched manual adjustments:', manualAdjData);
+        setManualAdjustments(manualAdjData);
         
         // Convert hidden expenses array to object
         const hiddenMap: {[key: string]: boolean} = {};
@@ -374,8 +414,12 @@ const Schedule = () => {
     return dueDates;
   };
 
+  // Create a map of accountId to account name for quick lookup
+  const accountMap = Object.fromEntries(accounts.map(acc => [acc.id, acc.name]));
+
   const renderDay = (day: Date) => {
-    const dayStr = day.toISOString().split('T')[0];
+    // Use consistent date formatting to avoid timezone issues
+    const dayStr = format(day, 'yyyy-MM-dd');
     const dueDates = getDueDatesForMonth(day);
     const dayData = dueDates.get(dayStr);
 
@@ -391,6 +435,23 @@ const Schedule = () => {
       return Math.max(3, scaledAmount * 18); // Min 3px, max ~18px
     };
 
+    // Get manual adjustments for this day
+    const dayManualAdjustments = manualAdjustments.filter(adj => {
+      const matches = adj.date === dayStr;
+      if (day.getMonth() === 6 && day.getDate() === 1) {
+        console.log(`Comparing adj.date ${adj.date}" with dayStr "${dayStr}": ${matches}`);
+      }
+      return matches;
+    });
+    
+    // Debug logging for July 1st
+    if (day.getMonth() === 6 && day.getDate() === 1) {
+      console.log('July 1st debugging:');
+      console.log('dayStr:', dayStr);
+      console.log('manualAdjustments:', manualAdjustments);
+      console.log('dayManualAdjustments:', dayManualAdjustments);
+    }
+
     return (
       <Box
         sx={{
@@ -400,7 +461,7 @@ const Schedule = () => {
           position: 'relative',
           bgcolor: isToday(day) 
             ? 'warning.light' 
-            : dayData?.incomes.length || dayData?.expenses.length 
+            : dayData?.incomes.length || dayData?.expenses.length || dayManualAdjustments.length
               ? 'rgba(144, 202, 249, 0.1)' 
               : 'transparent',
         }}
@@ -455,19 +516,59 @@ const Schedule = () => {
             ))}
           </Box>
         )}
+        {dayManualAdjustments.map(adj => (
+          <Box 
+            key={adj.id} 
+            sx={{ 
+              width: 6,
+              height: 6,
+              bgcolor: 'orange', 
+              borderRadius: '50%', 
+              position: 'absolute', 
+              top: 2, 
+              right: 2, 
+            }} 
+          />
+        ))}
         <Tooltip
           title={
             <Box>
-              {dayData?.incomes.map((income) => (
-                <Typography key={income.id} variant="body2">
-                  Income: {income.description} - ${income.amount}
-                </Typography>
-              ))}
-              {dayData?.expenses.map((expense) => (
-                <Typography key={expense.id} variant="body2">
-                  Expense: {expense.description} - ${expense.amount}
-                </Typography>
-              ))}
+              {dayData?.incomes && dayData.incomes.length > 0 && (
+                <>
+                  <Typography variant="subtitle2" sx={{ color: 'success.main', fontWeight: 'bold' }}>
+                    Income:
+                  </Typography>
+                  {dayData.incomes.map((income) => (
+                    <Typography key={income.id} variant="body2" sx={{ ml: 1 }}>
+                      {income.description} - {formatCurrency(income.amount)} ({formatFrequency(income.frequency)})
+                    </Typography>
+                  ))}
+                </>
+              )}
+              {dayData?.expenses && dayData.expenses.length > 0 && (
+                <>
+                  <Typography variant="subtitle2" sx={{ color: 'error.main', fontWeight: 'bold' }}>
+                    Expenses:
+                  </Typography>
+                  {dayData.expenses.map((expense) => (
+                    <Typography key={expense.id} variant="body2" sx={{ ml: 1 }}>
+                      {expense.description} - {formatCurrency(expense.amount)} ({formatFrequency(expense.frequency)})
+                    </Typography>
+                  ))}
+                </>
+              )}
+              {dayManualAdjustments.length > 0 && (
+                <>
+                  <Typography variant="subtitle2" sx={{ color: 'warning.main', fontWeight: 'bold' }}>
+                    Manual:
+                  </Typography>
+                  {dayManualAdjustments.map((adj) => (
+                    <Typography key={adj.id} variant="body2" sx={{ ml: 1 }}>
+                      {accountMap[adj.account_id] || 'Unknown'}: {adj.description && adj.description.trim() ? adj.description : 'No description'} ({formatCurrency(adj.amount)})
+                    </Typography>
+                  ))}
+                </>
+              )}
             </Box>
           }
         >
@@ -522,9 +623,14 @@ const Schedule = () => {
         <Typography variant="h5">
           {monthNames[startMonth]} {startYear} - {monthNames[(startMonth + 5) % 12]} {(startMonth + 5) > 11 ? startYear + 1 : startYear}
         </Typography>
-        <IconButton onClick={handleNext} size="large">
-          <ArrowForwardIosIcon />
-        </IconButton>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Button variant="contained" color="warning" onClick={() => setManualModalOpen(true)}>
+            Manual Adjustment
+          </Button>
+          <IconButton onClick={handleNext} size="large">
+            <ArrowForwardIosIcon />
+          </IconButton>
+        </Box>
       </Box>
 
       {/* Expense Filter */}
@@ -613,6 +719,57 @@ const Schedule = () => {
           );
         })}
       </Box>
+      <ManualAdjustmentModal
+        open={manualModalOpen}
+        onClose={() => setManualModalOpen(false)}
+        onSave={async (data) => {
+          try {
+            console.log('Saving manual adjustment data:', data);
+            const res = await apiCall('/manual-adjustments', { method: 'POST', body: JSON.stringify(data) });
+            if (res.ok) {
+              const newAdj = await res.json();
+              console.log('Server response:', newAdj);
+              const newManualAdjustment = { ...data, id: newAdj.id };
+              console.log('New manual adjustment to add:', newManualAdjustment);
+              setManualAdjustments(prev => {
+                const updated = [...prev, newManualAdjustment];
+                console.log('Updated manual adjustments:', updated);
+                return updated;
+              });
+              setManualModalOpen(false);
+              setSnackbarMessage('Manual adjustment saved successfully');
+              setSnackbarSeverity('success');
+              setSnackbarOpen(true);
+            } else {
+              console.error('Failed to save manual adjustment:', res.status, res.statusText);
+              const errorData = await res.json().catch(() => ({}));
+              console.error('Error details:', errorData);
+              setSnackbarMessage('Failed to save manual adjustment');
+              setSnackbarSeverity('error');
+              setSnackbarOpen(true);
+            }
+          } catch (error) {
+            console.error('Error saving manual adjustment:', error);
+            setSnackbarMessage('Error saving manual adjustment');
+            setSnackbarSeverity('error');
+            setSnackbarOpen(true);
+          }
+        }}
+        accounts={accounts}
+      />
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={6000}
+        onClose={() => setSnackbarOpen(false)}
+      >
+        <Alert
+          onClose={() => setSnackbarOpen(false)}
+          severity={snackbarSeverity}
+          sx={{ width: '100%' }}
+        >
+          {snackbarMessage}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

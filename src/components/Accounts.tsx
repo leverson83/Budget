@@ -36,6 +36,7 @@ interface AccountEntry {
   requiredBalance: number;
   isPrimary: boolean;
   diff: number;
+  includeInOnTrack: boolean;
 }
 
 const formatCurrency = (amount: number) => {
@@ -65,6 +66,7 @@ const Accounts = () => {
     currentBalance: 0,
     requiredBalance: 0,
     isPrimary: false,
+    includeInOnTrack: true,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -109,6 +111,7 @@ const Accounts = () => {
         currentBalance: account.currentBalance,
         requiredBalance: account.requiredBalance,
         isPrimary: account.isPrimary,
+        includeInOnTrack: account.includeInOnTrack,
       });
     } else {
       setEditingAccount(null);
@@ -118,6 +121,7 @@ const Accounts = () => {
         currentBalance: 0,
         requiredBalance: 0,
         isPrimary: false,
+        includeInOnTrack: true,
       });
     }
     setOpen(true);
@@ -132,6 +136,7 @@ const Accounts = () => {
       currentBalance: 0,
       requiredBalance: 0,
       isPrimary: false,
+      includeInOnTrack: true,
     });
   };
 
@@ -152,6 +157,7 @@ const Accounts = () => {
         currentBalance: formData.currentBalance || 0,
         requiredBalance: formData.requiredBalance || 0,
         isPrimary: formData.isPrimary || false,
+        includeInOnTrack: formData.includeInOnTrack === true,
         diff: diff
       };
 
@@ -270,6 +276,7 @@ const Accounts = () => {
               <TableCell align="right">Required Balance</TableCell>
               <TableCell align="right">Diff</TableCell>
               <TableCell>Primary</TableCell>
+              <TableCell>OnTrack</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -307,6 +314,7 @@ const Accounts = () => {
                   {formatDiff(account.currentBalance, account.requiredBalance).text}
                 </TableCell>
                 <TableCell>{account.isPrimary ? 'Yes' : 'No'}</TableCell>
+                <TableCell>{account.includeInOnTrack ? 'Yes' : 'No'}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -357,6 +365,15 @@ const Accounts = () => {
                 />
               }
               label="Primary Account"
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={formData.includeInOnTrack}
+                  onChange={(e) => setFormData({ ...formData, includeInOnTrack: e.target.checked })}
+                />
+              }
+              label="Include in OnTrack"
             />
           </Box>
         </DialogContent>
