@@ -150,6 +150,35 @@ const formatFrequency = (frequency: string): string => {
   }
 };
 
+// Helper function to get frequency sort order
+const getFrequencySortOrder = (frequency: string): number => {
+  switch (frequency) {
+    case 'weekly':
+      return 1;
+    case 'fortnightly':
+    case 'biweekly':
+      return 2;
+    case 'monthly':
+      return 3;
+    case 'quarterly':
+      return 4;
+    case 'yearly':
+    case 'annually':
+      return 5;
+    default:
+      return 999; // Unknown frequencies at the end
+  }
+};
+
+// Helper function to sort expenses by frequency
+const sortExpensesByFrequency = (expenses: ExpenseEntry[]): ExpenseEntry[] => {
+  return [...expenses].sort((a, b) => {
+    const orderA = getFrequencySortOrder(a.frequency);
+    const orderB = getFrequencySortOrder(b.frequency);
+    return orderA - orderB;
+  });
+};
+
 const Schedule = () => {
   const today = new Date();
   const [startMonth, setStartMonth] = useState(today.getMonth());
@@ -464,6 +493,11 @@ const Schedule = () => {
             : dayData?.incomes.length || dayData?.expenses.length || dayManualAdjustments.length
               ? 'rgba(144, 202, 249, 0.1)' 
               : 'transparent',
+          transition: 'box-shadow 0.2s, border 0.2s',
+          '&:hover': {
+            outline: '2px solid #90caf9',
+            zIndex: 2,
+          },
         }}
       >
         <Typography
@@ -530,50 +564,52 @@ const Schedule = () => {
             }} 
           />
         ))}
-        <Tooltip
-          title={
-            <Box>
-              {dayData?.incomes && dayData.incomes.length > 0 && (
-                <>
-                  <Typography variant="subtitle2" sx={{ color: 'success.main', fontWeight: 'bold' }}>
-                    Income:
-                  </Typography>
-                  {dayData.incomes.map((income) => (
-                    <Typography key={income.id} variant="body2" sx={{ ml: 1 }}>
-                      {income.description} - {formatCurrency(income.amount)} ({formatFrequency(income.frequency)})
+        {( (dayData?.incomes && dayData.incomes.length > 0) || (dayData?.expenses && dayData.expenses.length > 0) || dayManualAdjustments.length > 0 ) && (
+          <Tooltip
+            title={
+              <Box>
+                {dayData?.incomes && dayData.incomes.length > 0 && (
+                  <>
+                    <Typography variant="subtitle2" sx={{ color: 'success.main', fontWeight: 'bold' }}>
+                      Income:
                     </Typography>
-                  ))}
-                </>
-              )}
-              {dayData?.expenses && dayData.expenses.length > 0 && (
-                <>
-                  <Typography variant="subtitle2" sx={{ color: 'error.main', fontWeight: 'bold' }}>
-                    Expenses:
-                  </Typography>
-                  {dayData.expenses.map((expense) => (
-                    <Typography key={expense.id} variant="body2" sx={{ ml: 1 }}>
-                      {expense.description} - {formatCurrency(expense.amount)} ({formatFrequency(expense.frequency)})
+                    {dayData.incomes.map((income) => (
+                      <Typography key={income.id} variant="body2" sx={{ ml: 1 }}>
+                        {income.description} - {formatCurrency(income.amount)} ({formatFrequency(income.frequency)})
+                      </Typography>
+                    ))}
+                  </>
+                )}
+                {dayData?.expenses && dayData.expenses.length > 0 && (
+                  <>
+                    <Typography variant="subtitle2" sx={{ color: 'error.main', fontWeight: 'bold' }}>
+                      Expenses:
                     </Typography>
-                  ))}
-                </>
-              )}
-              {dayManualAdjustments.length > 0 && (
-                <>
-                  <Typography variant="subtitle2" sx={{ color: 'warning.main', fontWeight: 'bold' }}>
-                    Manual:
-                  </Typography>
-                  {dayManualAdjustments.map((adj) => (
-                    <Typography key={adj.id} variant="body2" sx={{ ml: 1 }}>
-                      {accountMap[adj.account_id] || 'Unknown'}: {adj.description && adj.description.trim() ? adj.description : 'No description'} ({formatCurrency(adj.amount)})
+                    {dayData.expenses.map((expense) => (
+                      <Typography key={expense.id} variant="body2" sx={{ ml: 1 }}>
+                        {expense.description} - {formatCurrency(expense.amount)} ({formatFrequency(expense.frequency)})
+                      </Typography>
+                    ))}
+                  </>
+                )}
+                {dayManualAdjustments.length > 0 && (
+                  <>
+                    <Typography variant="subtitle2" sx={{ color: 'warning.main', fontWeight: 'bold' }}>
+                      Manual:
                     </Typography>
-                  ))}
-                </>
-              )}
-            </Box>
-          }
-        >
-          <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
-        </Tooltip>
+                    {dayManualAdjustments.map((adj) => (
+                      <Typography key={adj.id} variant="body2" sx={{ ml: 1 }}>
+                        {accountMap[adj.account_id] || 'Unknown'}: {adj.description && adj.description.trim() ? adj.description : 'No description'} ({formatCurrency(adj.amount)})
+                      </Typography>
+                    ))}
+                  </>
+                )}
+              </Box>
+            }
+          >
+            <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
+          </Tooltip>
+        )}
       </Box>
     );
   };
@@ -644,7 +680,7 @@ const Schedule = () => {
           </Typography>
           <Divider sx={{ mb: 2 }} />
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, maxHeight: '300px', overflowY: 'auto' }}>
-            {expenses.map((expense) => (
+            {sortExpensesByFrequency(expenses).map((expense) => (
               <FormControlLabel
                 key={expense.id}
                 control={
@@ -658,7 +694,7 @@ const Schedule = () => {
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
                     <Typography variant="body2">{expense.description}</Typography>
                     <Typography variant="body2" sx={{ color: 'text.secondary', ml: 2 }}>
-                      ${expense.amount} ({expense.frequency})
+                      {formatCurrency(expense.amount)} ({formatFrequency(expense.frequency)})
                     </Typography>
                   </Box>
                 }

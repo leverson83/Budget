@@ -6,6 +6,7 @@ This file contains guidelines that the AI assistant should follow with every ins
 
 - **Income Formatting**: All income should be displayed with exactly 2 decimal places (e.g., $500 = $500.00 or 1250 = $1,250.00) unless specified otherwise
 - **Frequency Terminology**: All references that would say "biweek" or biweekly should say "fortnight" or fortnightly"
+- **Guideline Acknowledgement**: After every instruction, the assistant must read this file and indicate in the chat that it has been read, so the user knows it has been checked each time.
 
 ## Import/Export Functionality (Critical Feature)
 
