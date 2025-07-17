@@ -2856,6 +2856,45 @@ app.post('/api/manual-adjustments', authenticateToken, (req, res) => {
   });
 });
 
+app.delete('/api/manual-adjustments/:id', authenticateToken, (req, res) => {
+  const adjustmentId = req.params.id;
+  if (!adjustmentId) {
+    return res.status(400).json({ error: 'Missing adjustment ID.' });
+  }
+
+  // First verify the adjustment belongs to the user and get the version
+  db.get('SELECT id FROM budget_versions WHERE user_id = ? AND is_active = 1', [req.user.userId], (err, version) => {
+    if (err || !version) {
+      return res.status(400).json({ error: 'No active version found.' });
+    }
+
+    // Check if the adjustment exists and belongs to the user
+    db.get(
+      'SELECT id FROM manual_adjustments WHERE id = ? AND user_id = ? AND version_id = ?',
+      [adjustmentId, req.user.userId, version.id],
+      (err, adjustment) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!adjustment) {
+          return res.status(404).json({ error: 'Manual adjustment not found.' });
+        }
+
+        // Delete the adjustment
+        db.run(
+          'DELETE FROM manual_adjustments WHERE id = ? AND user_id = ? AND version_id = ?',
+          [adjustmentId, req.user.userId, version.id],
+          function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) {
+              return res.status(404).json({ error: 'Manual adjustment not found.' });
+            }
+            res.json({ message: 'Manual adjustment deleted successfully.' });
+          }
+        );
+      }
+    );
+  });
+});
+
 // Catch-all handler: send back React's index.html file for any non-API routes
 app.get('*', (req, res) => {
   // Don't serve index.html for API routes

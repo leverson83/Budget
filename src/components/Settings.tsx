@@ -44,6 +44,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { apiCall } from '../utils/api';
 import VersionManager from './VersionManager';
 import { format } from 'date-fns';
+import { useTheme } from '@mui/material/styles';
 
 const API_URL = 'http://localhost:3001/api';
 
@@ -106,6 +107,7 @@ const Settings = () => {
   const [editForm, setEditForm] = useState({ name: '', color: '', useCustomColor: false });
   const { showPlanningPage, showSchedulePage, showAccountsPage, updateSettings } = useSettings();
   const { user } = useAuth();
+  const theme = useTheme();
 
   // Accounts state
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -1338,8 +1340,8 @@ const Settings = () => {
               <Typography gutterBottom>
                 Are you sure you want to delete this manual adjustment?
               </Typography>
-              <Box sx={{ mt: 2, p: 2, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
-                <Typography variant="body2">
+              <Box sx={{ mt: 2, p: 2, backgroundColor: theme.palette.background.paper, border: '1px solid', borderColor: theme.palette.divider, borderRadius: 1 }}>
+                <Typography variant="body2" sx={{ color: 'text.primary' }}>
                   <strong>Date:</strong> {format(new Date(deletingManualAdjustment.date), 'MMM dd, yyyy')}<br />
                   <strong>Account:</strong> {getAccountName(deletingManualAdjustment.account_id)}<br />
                   <strong>Type:</strong> {deletingManualAdjustment.type}<br />
