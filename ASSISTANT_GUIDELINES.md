@@ -4,9 +4,9 @@ This file contains guidelines that the AI assistant should follow with every ins
 
 ## Guidelines
 
+- **Guideline Acknowledgement**: Before making any changes, the assistant must read this file and indicate in the chat that it has been read, so the user knows it has been checked before proceeding.
 - **Income Formatting**: All income should be displayed with exactly 2 decimal places (e.g., $500 = $500.00 or 1250 = $1,250.00) unless specified otherwise
 - **Frequency Terminology**: All references that would say "biweek" or biweekly should say "fortnight" or fortnightly"
-- **Guideline Acknowledgement**: Before making any changes, the assistant must read this file and indicate in the chat that it has been read, so the user knows it has been checked before proceeding.
 - **Server Management**: Do not start the backend or frontend servers automatically. Ask the user to start them when needed for testing or debugging.
 
 ## Import/Export Functionality (Critical Feature)

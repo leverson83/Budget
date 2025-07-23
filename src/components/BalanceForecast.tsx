@@ -38,6 +38,8 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import IconButton from '@mui/material/IconButton';
 import Button from '@mui/material/Button';
+import { useFrequency } from '../contexts/FrequencyContext';
+import InfoIcon from '@mui/icons-material/Info';
 
 // Format currency function
 const formatCurrency = (amount: number, noCents: boolean = false): string => {
@@ -90,6 +92,7 @@ interface TimePeriodSettings {
 }
 
 const BalanceForecast = () => {
+  const { frequency } = useFrequency();
   const [forecastData, setForecastData] = useState<BalanceForecastResponse | null>(null);
   const [disbursementSettings, setDisbursementSettings] = useState<DisbursementSettings>({
     disbursementFrequency: 'monthly',
@@ -107,6 +110,10 @@ const BalanceForecast = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [warningLine, setWarningLine] = useState<number | null>(null);
   const [settingsChanged, setSettingsChanged] = useState(false);
+  const [debugModalOpen, setDebugModalOpen] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<string>('');
+  const [debugLoading, setDebugLoading] = useState(false);
+  const [debugError, setDebugError] = useState<string | null>(null);
 
   // Fetch disbursement settings
   const fetchDisbursementSettings = async () => {
@@ -212,10 +219,10 @@ const BalanceForecast = () => {
     
     const periodToUse = customTimePeriod || timePeriod;
     
-    console.log('Fetching forecast data with period:', periodToUse);
+    console.log('Fetching forecast data with period:', periodToUse, 'and frequency:', disbursementSettings.disbursementFrequency, 'and day:', disbursementSettings.disbursementDay);
     
     try {
-      const response = await apiCall(`/balance-forecast?pastMonths=${periodToUse.pastMonths}&futureMonths=${periodToUse.futureMonths}&t=${Date.now()}`);
+      const response = await apiCall(`/balance-forecast?pastMonths=${periodToUse.pastMonths}&futureMonths=${periodToUse.futureMonths}&frequency=${disbursementSettings.disbursementFrequency}&disbursementDay=${disbursementSettings.disbursementDay}&t=${Date.now()}`);
       if (response.ok) {
         const data: BalanceForecastResponse = await response.json();
         console.log('Received forecast data:', {
@@ -239,6 +246,32 @@ const BalanceForecast = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchDebugInfo = async () => {
+    setDebugLoading(true);
+    setDebugError(null);
+    try {
+      const response = await apiCall(`/balance-forecast-debug?frequency=${frequency}&t=${Date.now()}`);
+      if (response.ok) {
+        const data = await response.json();
+        setDebugInfo(data.debug || 'No debug info available.');
+      } else {
+        setDebugError('Failed to fetch debug info.');
+      }
+    } catch (err) {
+      setDebugError('Failed to fetch debug info.');
+    } finally {
+      setDebugLoading(false);
+    }
+  };
+
+  const handleOpenDebugModal = () => {
+    setDebugModalOpen(true);
+    fetchDebugInfo();
+  };
+  const handleCloseDebugModal = () => {
+    setDebugModalOpen(false);
   };
 
   useEffect(() => {
@@ -272,6 +305,14 @@ const BalanceForecast = () => {
       setChartKey(prev => prev + 1);
     }
   }, [forecastData]);
+
+  useEffect(() => {
+    // Only refetch if the modal is closed (to avoid double fetches)
+    if (!settingsOpen) {
+      fetchForecastData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disbursementSettings.disbursementFrequency, disbursementSettings.disbursementDay]);
 
   const handleDisbursementFrequencyChange = (frequency: Frequency) => {
     const newSettings = { ...disbursementSettings, disbursementFrequency: frequency };
@@ -361,7 +402,7 @@ const BalanceForecast = () => {
   const chartData = {
     labels: forecastData?.forecast.map(item => new Date(item.date)) || [],
     datasets: [
-      ...forecastData?.accounts
+      ...(forecastData?.accounts || [])
         .filter(account => selectedAccounts.has(account.id))
         .map((account, index) => {
           const colors = [
@@ -510,7 +551,7 @@ const BalanceForecast = () => {
       <Typography variant="h4" sx={{ mb: 3, fontWeight: 'bold' }}>
         Balance Forecast
       </Typography>
-      
+
       {/* Forecast Settings Modal */}
       <Dialog open={settingsOpen} onClose={() => setSettingsOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Forecast Settings</DialogTitle>
@@ -663,10 +704,34 @@ const BalanceForecast = () => {
         </DialogActions>
       </Dialog>
 
+      {/* Debug Modal */}
+      <Dialog open={debugModalOpen} onClose={handleCloseDebugModal} maxWidth="md" fullWidth>
+        <DialogTitle>Balance Forecast Debug Info</DialogTitle>
+        <DialogContent>
+          {debugLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}>
+              <CircularProgress />
+            </Box>
+          ) : debugError ? (
+            <Alert severity="error">{debugError}</Alert>
+          ) : (
+            <Box sx={{ maxHeight: 500, overflow: 'auto', bgcolor: '#222', color: '#fff', p: 2, borderRadius: 2, fontFamily: 'monospace', fontSize: 13 }}>
+              <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{debugInfo}</pre>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDebugModal}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Chart */}
       <Paper sx={{ p: 3, position: 'relative' }}>
-         {/* Settings Cog Icon */}
-         <Box sx={{ position: 'absolute', top: 0, right: 0, zIndex: 1 }}>
+         {/* Settings and Debug Icons */}
+         <Box sx={{ position: 'absolute', top: 0, right: 0, zIndex: 1, display: 'flex' }}>
+           <IconButton aria-label="Show Debug Info" onClick={handleOpenDebugModal}>
+             <InfoIcon />
+           </IconButton>
            <IconButton aria-label="Forecast Settings" onClick={() => setSettingsOpen(true)}>
              <SettingsIcon />
            </IconButton>

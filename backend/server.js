@@ -2291,17 +2291,35 @@ app.post('/api/settings/transfers', authenticateToken, (req, res) => {
   });
 });
 
+// In-memory debug log for the last forecast
+let lastBalanceForecastDebugLog = '';
+
+// Helper to append to debug log
+function appendDebugLog(line) {
+  lastBalanceForecastDebugLog += line + '\n';
+}
+
+// GET debug log endpoint
+app.get('/api/balance-forecast-debug', authenticateToken, (req, res) => {
+  res.json({ debug: lastBalanceForecastDebugLog });
+});
+
 // Balance forecasting endpoint
 app.get('/api/balance-forecast', authenticateToken, (req, res) => {
   // Parse time period parameters
   const pastMonths = parseInt(req.query.pastMonths) || 1;
   const futureMonths = parseInt(req.query.futureMonths) || 3;
+  // Parse frequency and disbursementDay from query
+  const selectedFrequency = req.query.frequency;
+  const selectedDay = req.query.disbursementDay;
   
   console.log('Balance forecast request:', {
     query: req.query,
     pastMonths,
     futureMonths,
-    userId: req.user.userId
+    userId: req.user.userId,
+    selectedFrequency,
+    selectedDay
   });
   
   // Validate parameters
@@ -2341,14 +2359,17 @@ app.get('/api/balance-forecast', authenticateToken, (req, res) => {
                 if (err) return res.status(500).json({ error: err.message });
                 db.get('SELECT value FROM settings WHERE user_id = ? AND version_id = ? AND key = ?', [req.user.userId, version.id, 'disbursementDay'], (err, disbursementDayRow) => {
                   if (err) return res.status(500).json({ error: err.message });
+                  // Use selectedFrequency and selectedDay from query if provided, otherwise fallback to settings
+                  const disbursementFrequency = selectedFrequency || disbursementFreqRow?.value || 'monthly';
+                  const disbursementDay = selectedDay !== undefined ? parseInt(selectedDay) : parseInt(disbursementDayRow?.value || '1');
                   // Calculate balance forecast with custom time period
                   const forecast = calculateBalanceForecast(
                     accounts,
                     incomes,
                     processedExpenses,
                     manualAdjustments,
-                    disbursementFreqRow?.value || 'monthly',
-                    parseInt(disbursementDayRow?.value || '1'),
+                    disbursementFrequency,
+                    disbursementDay,
                     pastMonths,
                     futureMonths
                   );
@@ -2365,8 +2386,179 @@ app.get('/api/balance-forecast', authenticateToken, (req, res) => {
 
 // Helper function to calculate balance forecast
 function calculateBalanceForecast(accounts, incomes, expenses, manualAdjustments, disbursementFrequency, disbursementDay, pastMonths = 1, futureMonths = 3) {
+  // Reset debug log
+  lastBalanceForecastDebugLog = '';
+  function formatCurrency(amount) {
+    return '$' + Number(amount).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function log(line, obj) {
+    // DISABLED: Only show preview, not main simulation logs
+    // Human readable formatting
+    // if (obj !== undefined) {
+    //   if (typeof obj === 'object' && obj !== null) {
+    //     // Custom formatting for known log types
+    //     if (line.includes('Income processed')) {
+    //       appendDebugLog(`  + Income: ${obj.income} | Amount: ${formatCurrency(obj.amount)} | New Balance: ${formatCurrency(obj.newBalance)}`);
+    //     } else if (line.includes('Disbursement day detected')) {
+    //       appendDebugLog(`\n[Disbursement Day] ${obj.frequency} on day ${obj.day} (Today: ${obj.currentDayOfWeek})`);
+    //     } else if (line.includes('Disbursement:')) {
+    //       appendDebugLog(`  > Transfer from Primary to ${accounts.find(a => a.id === obj.toAccount)?.name || obj.toAccount}: ${formatCurrency(obj.transferAmount)} | Primary: ${formatCurrency(obj.primaryBalance)} | Target: ${formatCurrency(obj.targetBalance)}`);
+    //     } else if (line.includes('Expense due check')) {
+    //       appendDebugLog(`    - Expense Due? ${obj.willProcess ? 'YES' : 'NO'} | ${obj.manualWithdrawalsOnly ? 'Manual Only' : 'Auto'} `);
+    //     } else if (line.includes('Expense processed')) {
+    //       appendDebugLog(`    - Expense: ${obj.expense} | Account: ${accounts.find(a => a.id === obj.accountId)?.name || obj.accountId} | Amount: ${formatCurrency(obj.amount)} | New Balance: ${formatCurrency(obj.newBalance)}`);
+    //     } else if (line.includes('Manual adjustment')) {
+    //       appendDebugLog(`    * Manual Adjustment: ${obj.type} ${formatCurrency(obj.amount)} on Account ${accounts.find(a => a.id === obj.account_id)?.name || obj.account_id}`);
+    //     } else if (line.includes('Checking if due:')) {
+    //       // Only log if will process
+    //       if (obj.willProcess) {
+    //         appendDebugLog(`      (Due Check) ${obj.date} for ${obj.nextDue}`);
+    //       }
+    //     } else if (line.includes('isDue result')) {
+    //       // skip
+    //     } else {
+    //       appendDebugLog(line + ' ' + JSON.stringify(obj));
+    //     }
+    //   } else {
+    //     appendDebugLog(line + ' ' + obj);
+    //   }
+    // } else {
+    //   // Section headers or simple lines
+    //   if (line.includes('Balance forecast date range:')) {
+    //     appendDebugLog('=== Balance Forecast ===');
+    //   } else if (line.includes('Expenses being processed:')) {
+    //     appendDebugLog('\n--- Expenses ---');
+    //   } else {
+    //     appendDebugLog(line);
+    //   }
+    // }
+    // Also log to console
+    // (optional: comment out to reduce console noise)
+    // console.log(line, obj);
+  }
   const today = new Date();
-  
+  const primaryAccount = accounts.find(acc => acc.isPrimary);
+  const nonPrimaryAccounts = accounts.filter(acc => !acc.isPrimary);  
+    // === Account Deposit & Expense Preview ===
+    // === Account Deposit & Expense Preview ===
+appendDebugLog('=== Account Deposit & Expense Preview ===');
+appendDebugLog(`Disbursement Frequency: ${disbursementFrequency}, Disbursement Day: ${disbursementDay}`);
+
+// Helper to get next N deposit dates for a frequency
+function getNextDepositDates(startDate, frequency, day, count) {
+  const dates = [];
+  let current = new Date(startDate);
+  let found = 0;
+  if (frequency === 'weekly') {
+    // Move to the next correct weekday if not already on it
+    const targetDay = day % 7;
+    while (current.getDay() !== targetDay) {
+      current.setDate(current.getDate() + 1);
+    }
+    while (found < count) {
+      dates.push(new Date(current));
+      found++;
+      current.setDate(current.getDate() + 7); // Next week, same weekday
+    }
+    return dates;
+  }
+  // Default: use isDisbursementDay logic
+  while (found < count) {
+    if (isDisbursementDay(current, frequency, day)) {
+      dates.push(new Date(current));
+      found++;
+    }
+    current.setDate(current.getDate() + 1);
+  }
+  return dates;
+}
+
+nonPrimaryAccounts.forEach(account => {
+  appendDebugLog(`\n--- Account: ${account.name} ---`);
+  // Header
+  const colDate = 'Date'.padEnd(12);
+  const colBalance = 'Balance'.padEnd(12);
+  appendDebugLog(`${colDate}| ${colBalance}| Transactions`);
+  appendDebugLog('-'.repeat(12) + '+-' + '-'.repeat(12) + '+-' + '-'.repeat(40));
+
+  let simulatedBalance = account.currentBalance;
+  let currentDate = new Date(today);
+  for (let i = 0; i < 100; i++) {
+    const dateStr = currentDate.toISOString().split('T')[0];
+    let deposits = [];
+    let withdrawals = [];
+    let depositTotal = 0;
+    let withdrawalTotal = 0;
+
+    // Check for deposit (disbursement day)
+    if (isDisbursementDay(currentDate, disbursementFrequency, disbursementDay)) {
+      // Calculate deposit amount for this cycle
+      const accountExpenses = expenses.filter(e => e.accountId === account.id);
+      let depositAmount = 0;
+      accountExpenses.forEach(exp => {
+        const annualAmount = convertToAnnual(exp.amount, exp.frequency);
+        const periodAmount = convertFromAnnual(annualAmount, disbursementFrequency);
+        depositAmount += periodAmount;
+      });
+      if (depositAmount > 0) {
+        deposits.push({
+          text: `${formatCurrency(depositAmount)} [primary account]`,
+          amount: depositAmount
+        });
+        depositTotal += depositAmount;
+        simulatedBalance += depositAmount;
+      }
+    }
+
+    // Check for expenses due today
+    const accountExpenses = expenses.filter(e => e.accountId === account.id);
+    accountExpenses.forEach(exp => {
+      if (isDue(exp, currentDate, null)) {
+        withdrawals.push({
+          text: `${exp.description} (${formatCurrency(exp.amount)} ${exp.frequency})`,
+          amount: Number(exp.amount)
+        });
+        withdrawalTotal += Number(exp.amount);
+        simulatedBalance -= Number(exp.amount);
+      }
+    });
+
+    // Sort deposits and withdrawals by amount (highest to lowest)
+    deposits.sort((a, b) => b.amount - a.amount);
+    withdrawals.sort((a, b) => b.amount - a.amount);
+
+    // Format output with colors for deposits and withdrawals
+    const dateCol = dateStr.padEnd(12);
+    const startingBalance = simulatedBalance - depositTotal + withdrawalTotal;
+    const balanceCol = formatCurrency(simulatedBalance).padEnd(12);
+    
+    if (deposits.length > 0 || withdrawals.length > 0) {
+      // Show date and starting balance
+      appendDebugLog(`${dateCol}| ${formatCurrency(startingBalance).padEnd(12)}|`);
+      
+      let runningBalance = startingBalance;
+      
+      // Show deposits in green (if any)
+      if (deposits.length > 0) {
+        deposits.forEach(deposit => {
+          runningBalance += deposit.amount;
+          appendDebugLog(`${' '.repeat(26)}| 🟢 +${deposit.text} → ${formatCurrency(runningBalance)}`);
+        });
+      }
+      
+      // Show withdrawals in red, each on its own line
+      withdrawals.forEach(withdrawal => {
+        runningBalance -= withdrawal.amount;
+        appendDebugLog(`${' '.repeat(26)}| 🔴 -${withdrawal.text} → ${formatCurrency(runningBalance)}`);
+      });
+    } else {
+      // No transactions, just show date and balance
+      appendDebugLog(`${dateCol}| ${balanceCol}|`);
+    }
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+});
+appendDebugLog('\n=== End Account Preview ===\n');
   // Calculate start date (past months)
   const startDate = new Date(today);
   startDate.setMonth(today.getMonth() - pastMonths);
@@ -2376,7 +2568,7 @@ function calculateBalanceForecast(accounts, incomes, expenses, manualAdjustments
   endDate.setMonth(today.getMonth() + futureMonths);
   
   // Debug logging
-  console.log('Balance forecast date range:', {
+  log('Balance forecast date range:', {
     today: today.toISOString().split('T')[0],
     startDate: startDate.toISOString().split('T')[0],
     endDate: endDate.toISOString().split('T')[0],
@@ -2388,7 +2580,7 @@ function calculateBalanceForecast(accounts, incomes, expenses, manualAdjustments
   });
   
   // Debug logging for expenses
-  console.log('Expenses being processed:', expenses.map(exp => ({
+  log('Expenses being processed:', expenses.map(exp => ({
     id: exp.id,
     description: exp.description,
     accountId: exp.accountId,
@@ -2397,7 +2589,6 @@ function calculateBalanceForecast(accounts, incomes, expenses, manualAdjustments
     frequency: exp.frequency
   })));
   
-  const primaryAccount = accounts.find(acc => acc.isPrimary);
   if (!primaryAccount) {
     return { error: 'No primary account found' };
   }
@@ -2422,13 +2613,13 @@ function calculateBalanceForecast(accounts, incomes, expenses, manualAdjustments
     
     // Process income (goes to primary account)
     incomes.forEach(income => {
-      if (isDue(income, currentDate)) {
+      if (isDue(income, currentDate, log)) {
         const amount = Number(income.amount);
         accountBalances[primaryAccount.id] += amount;
         dayBalances.accounts[primaryAccount.id] = accountBalances[primaryAccount.id];
         
         // Debug logging for income
-        console.log(`Income processed on ${dateStr}:`, {
+        log(`[DEBUG][${dateStr}] Income processed:`, {
           income: income.description,
           amount,
           newBalance: accountBalances[primaryAccount.id]
@@ -2438,43 +2629,31 @@ function calculateBalanceForecast(accounts, incomes, expenses, manualAdjustments
     
     // Process disbursements (from primary to other accounts based on their allocated expenses)
     if (isDisbursementDay(currentDate, disbursementFrequency, disbursementDay)) {
-      console.log(`Disbursement day detected on ${dateStr}:`, {
+      log(`[DEBUG][${dateStr}] Disbursement day detected:`, {
         frequency: disbursementFrequency,
         day: disbursementDay,
         currentDayOfWeek: currentDate.getDay()
       });
-      // For each non-primary account, sum all expenses (including manual-only) due between this disbursement day and the next
-      const nextDisbursementDate = new Date(currentDate);
-      // Find the next disbursement day
-      let foundNext = false;
-      let searchDate = new Date(currentDate);
-      while (!foundNext) {
-        searchDate.setDate(searchDate.getDate() + 1);
-        if (isDisbursementDay(searchDate, disbursementFrequency, disbursementDay) || searchDate > endDate) {
-          foundNext = true;
-        }
-      }
       // For each non-primary account
-      accounts.forEach(account => {
-        if (account.id === primaryAccount.id) return;
-        let sum = 0;
-        expenses.forEach(expense => {
-          if (expense.accountId === account.id) {
-            // Use the helper to count occurrences
-            const occurrences = countExpenseOccurrencesInPeriod(expense, currentDate, searchDate);
-            sum += occurrences * Number(expense.amount);
-          }
+      nonPrimaryAccounts.forEach(account => {
+        // Calculate deposit amount using the same logic as debug preview
+        const accountExpenses = expenses.filter(e => e.accountId === account.id);
+        let depositAmount = 0;
+        accountExpenses.forEach(exp => {
+          const annualAmount = convertToAnnual(exp.amount, exp.frequency);
+          const periodAmount = convertFromAnnual(annualAmount, disbursementFrequency);
+          depositAmount += periodAmount;
         });
-        if (sum > 0) {
-          accountBalances[primaryAccount.id] -= sum;
-          accountBalances[account.id] += sum;
+        if (depositAmount > 0) {
+          accountBalances[primaryAccount.id] -= depositAmount;
+          accountBalances[account.id] += depositAmount;
           dayBalances.accounts[primaryAccount.id] = accountBalances[primaryAccount.id];
           dayBalances.accounts[account.id] = accountBalances[account.id];
           // Debug logging for disbursement
-          console.log(`Disbursement on ${dateStr}:`, {
+          log(`[DEBUG][${dateStr}] Disbursement:`, {
             fromAccount: primaryAccount.id,
             toAccount: account.id,
-            amount: sum,
+            transferAmount: depositAmount,
             primaryBalance: accountBalances[primaryAccount.id],
             targetBalance: accountBalances[account.id]
           });
@@ -2484,11 +2663,11 @@ function calculateBalanceForecast(accounts, incomes, expenses, manualAdjustments
     
     // Process all expenses (both primary and non-primary accounts)
     expenses.forEach(expense => {
-      const isDueToday = isDue(expense, currentDate);
+      const isDueToday = isDue(expense, currentDate, log);
       const shouldProcess = isDueToday && !expense.manualWithdrawalsOnly;
       
       if (isDueToday) {
-        console.log(`Expense due check on ${dateStr}: ${expense.description}`, {
+        log(`[DEBUG][${dateStr}] Expense due check: ${expense.description}`, {
           isDue: isDueToday,
           manualWithdrawalsOnly: expense.manualWithdrawalsOnly,
           willProcess: shouldProcess
@@ -2502,7 +2681,7 @@ function calculateBalanceForecast(accounts, incomes, expenses, manualAdjustments
         dayBalances.accounts[accountId] = accountBalances[accountId];
         
         // Debug logging for expense processing
-        console.log(`Expense processed on ${dateStr}:`, {
+        log(`[DEBUG][${dateStr}] Expense processed:`, {
           expense: expense.description,
           accountId,
           amount,
@@ -2520,6 +2699,7 @@ function calculateBalanceForecast(accounts, incomes, expenses, manualAdjustments
           accountBalances[adjustment.account_id] -= Number(adjustment.amount);
         }
         dayBalances.accounts[adjustment.account_id] = accountBalances[adjustment.account_id];
+        log(`[DEBUG][${dateStr}] Manual adjustment:`, adjustment);
       }
     });
     
@@ -2533,14 +2713,43 @@ function calculateBalanceForecast(accounts, incomes, expenses, manualAdjustments
   };
 }
 
-function isDue(item, date) {
+// Helper: Convert any frequency to annual
+function convertToAnnual(amount, frequency) {
+  switch (frequency) {
+    case 'daily': return amount * 365;
+    case 'weekly': return amount * 52;
+    case 'biweekly': return amount * 26;
+    case 'fortnightly': return amount * 26;
+    case 'monthly': return amount * 12;
+    case 'quarterly': return amount * 4;
+    case 'annually': return amount;
+    case 'yearly': return amount;
+    default: return amount;
+  }
+}
+// Helper: Convert annual to any frequency
+function convertFromAnnual(annualAmount, frequency) {
+  switch (frequency) {
+    case 'daily': return annualAmount / 365;
+    case 'weekly': return annualAmount / 52;
+    case 'biweekly': return annualAmount / 26;
+    case 'fortnightly': return annualAmount / 26;
+    case 'monthly': return annualAmount / 12;
+    case 'quarterly': return annualAmount / 4;
+    case 'annually': return annualAmount;
+    case 'yearly': return annualAmount;
+    default: return annualAmount;
+  }
+}
+
+function isDue(item, date, log) {
   // Handles both income and expense
   const freq = item.frequency;
   const nextDue = new Date(item.nextDue);
   
   // Debug logging (only for specific dates to reduce noise)
-  if (date.getDate() === 15 || date.getDate() === 1) { // Only log on 1st and 15th
-    console.log(`Checking if due: ${item.description} (${freq})`, {
+  if (log && (date.getDate() === 15 || date.getDate() === 1)) { // Only log on 1st and 15th
+    log(`Checking if due: ${item.description} (${freq})`, {
       date: date.toISOString().split('T')[0],
       nextDue: nextDue.toISOString().split('T')[0],
       dateBeforeNextDue: date < nextDue,
@@ -2577,8 +2786,8 @@ function isDue(item, date) {
   }
   
   // Update debug log with result
-  if (date.getDate() === 15 || date.getDate() === 1) {
-    console.log(`isDue result for ${item.description}: ${result}`);
+  if (log && (date.getDate() === 15 || date.getDate() === 1)) {
+    log(`isDue result for ${item.description}: ${result}`);
   }
   return result;
 }
@@ -2630,11 +2839,11 @@ function calculateTotalIncomeForPeriod(incomes, frequency) {
 }
 
 // Helper: count how many times an expense is due between two dates
-function countExpenseOccurrencesInPeriod(expense, startDate, endDate) {
+function countExpenseOccurrencesInPeriod(expense, startDate, endDate, log) {
   let count = 0;
   let checkDate = new Date(startDate);
   while (checkDate < endDate) {
-    if (isDue(expense, checkDate)) {
+    if (isDue(expense, checkDate, log)) {
       count++;
     }
     checkDate.setDate(checkDate.getDate() + 1);
