@@ -2302,6 +2302,11 @@ function appendDebugLog(line) {
   lastBalanceForecastDebugLog += line + '\n';
 }
 
+// Add this helper near the top of calculateBalanceForecast
+function formatPreviewLine(line) {
+  return line.replace(/^(\d{4})-(\d{2})-(\d{2})/, (m, y, mth, d) => `${d}/${mth}/${y}`);
+}
+
 // GET debug log endpoint
 app.get('/api/balance-forecast-debug', authenticateToken, (req, res) => {
   const accountsParam = req.query.accounts;
@@ -2346,8 +2351,37 @@ app.get('/api/balance-forecast-debug', authenticateToken, (req, res) => {
       // Detect if the log uses a single preview section
       const previewSectionIdx = lines.findIndex(line => line.includes('=== Account Deposit & Expense Preview ==='));
       if (previewSectionIdx !== -1) {
+        // Find the start and end date from the preview section
+        let startDate = null;
+        let endDate = null;
+        for (let i = previewSectionIdx + 1; i < lines.length; i++) {
+          const line = lines[i];
+          const dateMatch = line.match(/^(\d{4}-\d{2}-\d{2})/);
+          if (dateMatch) {
+            if (!startDate) startDate = dateMatch[1];
+            endDate = dateMatch[1];
+          }
+        }
+        // If no date lines found, try to extract from the forecast period (look for 'Balance forecast date range:' log line)
+        if (!startDate || !endDate) {
+          const rangeLine = lines.find(line => line.includes('Balance forecast date range:'));
+          if (rangeLine) {
+            const match = rangeLine.match(/startDate.*?:\s*['\"]?(\d{4}-\d{2}-\d{2})['\"]?.*endDate.*?:\s*['\"]?(\d{4}-\d{2}-\d{2})/);
+            if (match) {
+              startDate = match[1];
+              endDate = match[2];
+            }
+          }
+        }
+        // Format dates as DD/MM/YYYY
+        function toDDMMYYYY(dateStr) {
+          if (!dateStr) return 'N/A';
+          const [y, m, d] = dateStr.split('-');
+          return `${d}/${m}/${y}`;
+        }
+        let datePeriod = (startDate && endDate) ? `${toDDMMYYYY(startDate)} to ${toDDMMYYYY(endDate)}` : 'N/A';
         // Custom header
-        filteredLines.push(`Next 100 day data modelling for the following accounts: [${accountNames.join(', ')}]`);
+        filteredLines.push(`Next 100 day data modelling for ${datePeriod} for the following accounts: [${accountNames.join(', ')}]`);
         filteredLines.push('');
         // For each selected account, extract its block
         let foundAccountBlock = false;
@@ -2647,14 +2681,20 @@ nonPrimaryAccounts.forEach(account => {
     deposits.sort((a, b) => b.amount - a.amount);
     withdrawals.sort((a, b) => b.amount - a.amount);
 
+    // Find manual adjustments for this account and date
+    const adjustmentsToday = manualAdjustments.filter(adj => adj.account_id === account.id && adj.date === dateStr);
+
     // Format output with colors for deposits and withdrawals
-    const dateCol = dateStr.padEnd(12);
+    const dateCol = (() => {
+      const [y, m, d] = dateStr.split('-');
+      return `${m}/${d}/${y}`.padEnd(12);
+    })();
     const startingBalance = simulatedBalance - depositTotal + withdrawalTotal;
     const balanceCol = formatCurrency(simulatedBalance).padEnd(12);
     
-    if (deposits.length > 0 || withdrawals.length > 0) {
+    if (deposits.length > 0 || withdrawals.length > 0 || adjustmentsToday.length > 0) {
       // Show date and starting balance
-      appendDebugLog(`${dateCol}| ${formatCurrency(startingBalance).padEnd(12)}|`);
+      appendDebugLog(formatPreviewLine(`${dateCol}| ${formatCurrency(startingBalance).padEnd(12)}|`));
       
       let runningBalance = startingBalance;
       
@@ -2662,18 +2702,29 @@ nonPrimaryAccounts.forEach(account => {
       if (deposits.length > 0) {
         deposits.forEach(deposit => {
           runningBalance += deposit.amount;
-          appendDebugLog(`${' '.repeat(26)}| 🟢 +${deposit.text} → ${formatCurrency(runningBalance)}`);
+          appendDebugLog(formatPreviewLine(`${' '.repeat(26)}| 🟢 +${deposit.text} → ${formatCurrency(runningBalance)}`));
         });
       }
       
       // Show withdrawals in red, each on its own line
       withdrawals.forEach(withdrawal => {
         runningBalance -= withdrawal.amount;
-        appendDebugLog(`${' '.repeat(26)}| 🔴 -${withdrawal.text} → ${formatCurrency(runningBalance)}`);
+        appendDebugLog(formatPreviewLine(`${' '.repeat(26)}| 🔴 -${withdrawal.text} → ${formatCurrency(runningBalance)}`));
+      });
+
+      // Show manual adjustments (distinct icon)
+      adjustmentsToday.forEach(adj => {
+        if (adj.type === 'deposit') {
+          runningBalance += Number(adj.amount);
+          appendDebugLog(formatPreviewLine(`${' '.repeat(26)}| 🟡 Manual +${formatCurrency(adj.amount)} → ${formatCurrency(runningBalance)}`));
+        } else {
+          runningBalance -= Number(adj.amount);
+          appendDebugLog(formatPreviewLine(`${' '.repeat(26)}| 🟠 Manual -${formatCurrency(adj.amount)} → ${formatCurrency(runningBalance)}`));
+        }
       });
     } else {
       // No transactions, just show date and balance
-      appendDebugLog(`${dateCol}| ${balanceCol}|`);
+      appendDebugLog(formatPreviewLine(`${dateCol}| ${balanceCol}|`));
     }
     currentDate.setDate(currentDate.getDate() + 1);
   }

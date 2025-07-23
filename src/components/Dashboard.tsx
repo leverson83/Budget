@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Box, Typography, CircularProgress, Alert, Select, MenuItem, FormControl, InputLabel, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Checkbox, TextField } from '@mui/material';
+import { Box, Typography, CircularProgress, Alert, Select, MenuItem, FormControl, InputLabel, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Checkbox, TextField, FormControlLabel } from '@mui/material';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
 import { Pie } from 'react-chartjs-2';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
@@ -421,6 +421,7 @@ const Dashboard = () => {
   const [editableBalances, setEditableBalances] = useState<{ [key: number]: number }>({});
   const [showAuditStartDialog, setShowAuditStartDialog] = useState(false);
   const [showAuditCompleteDialog, setShowAuditCompleteDialog] = useState(false);
+  const [applyExpectedBalances, setApplyExpectedBalances] = useState(true);
   const navigate = useNavigate();
 
     const fetchData = async () => {
@@ -857,12 +858,57 @@ const Dashboard = () => {
             <Box component="li" sx={{ mb: 0 }}>
               Tick the checkbox to confirm account information up to date
             </Box>
-    </Box>
+          </Box>
+          {/* New checkbox for apply expected balances */}
+          <Box sx={{ mt: 2 }}>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={applyExpectedBalances}
+                  onChange={e => setApplyExpectedBalances(e.target.checked)}
+                />
+              }
+              label="Apply expected balances"
+            />
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setShowAuditStartDialog(false)}>Cancel</Button>
-          <Button onClick={handleConfirmStartAudit} color="error" variant="contained">
-            Start Check
+          <Button
+            onClick={async () => {
+              if (applyExpectedBalances) {
+                // Update all accounts to required balance
+                await Promise.all(accounts.map(async (account) => {
+                  if (!account.isPrimary && account.currentBalance !== account.requiredBalance) {
+                    try {
+                      await apiCall(`/accounts/${account.id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          currentBalance: account.requiredBalance,
+                          name: account.name,
+                          bank: account.bank,
+                          requiredBalance: account.requiredBalance,
+                          isPrimary: account.isPrimary,
+                          diff: 0
+                        })
+                      });
+                    } catch (err) {
+                      // Optionally handle error
+                    }
+                  }
+                }));
+                // Refresh accounts after update
+                fetchData();
+                setShowAuditStartDialog(false);
+              } else {
+                handleConfirmStartAudit();
+              }
+            }}
+            color="error"
+            variant="contained"
+          >
+            {applyExpectedBalances ? 'Update' : 'Start Check'}
           </Button>
         </DialogActions>
       </Dialog>

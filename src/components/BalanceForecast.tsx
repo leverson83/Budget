@@ -40,6 +40,7 @@ import IconButton from '@mui/material/IconButton';
 import Button from '@mui/material/Button';
 import { useFrequency } from '../contexts/FrequencyContext';
 import InfoIcon from '@mui/icons-material/Info';
+import { linearRegression, linearRegressionLine } from 'simple-statistics';
 
 // Format currency function
 const formatCurrency = (amount: number, noCents: boolean = false): string => {
@@ -298,13 +299,19 @@ const BalanceForecast = () => {
     loadSavedSettings();
   }, []);
 
-  // Fetch forecast data when settings are loaded and timePeriod changes
+  // Add effect to fetch forecast data after settingsLoaded and disbursementSettings are set
   useEffect(() => {
-    if (settingsLoaded && timePeriod.pastMonths && timePeriod.futureMonths) {
+    if (
+      settingsLoaded &&
+      disbursementSettings.disbursementFrequency &&
+      disbursementSettings.disbursementDay !== undefined &&
+      timePeriod.pastMonths &&
+      timePeriod.futureMonths
+    ) {
       fetchForecastData(timePeriod);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settingsLoaded, timePeriod.pastMonths, timePeriod.futureMonths]);
+  }, [settingsLoaded, disbursementSettings.disbursementFrequency, disbursementSettings.disbursementDay, timePeriod.pastMonths, timePeriod.futureMonths]);
 
   const loadSavedSettings = async (): Promise<Set<number> | undefined> => {
     try {
@@ -520,6 +527,8 @@ const BalanceForecast = () => {
     setModalSelectedAccounts(new Set(selectedAccounts));
     setModalTimePeriod(timePeriod);
     setModalWarningLine(warningLine);
+    // Set the modal's date picker to the current disbursement date
+    setNextCycleDate(getDateFromDisbursement(disbursementSettings.disbursementFrequency, disbursementSettings.disbursementDay));
     setSettingsOpen(true);
   };
 
@@ -551,25 +560,54 @@ const BalanceForecast = () => {
             '#1976d2', '#dc004e', '#388e3c', '#f57c00', '#7b1fa2', 
             '#d32f2f', '#388e3c', '#f57c00', '#7b1fa2', '#1976d2'
           ];
-          
-          return {
-            label: account.name,
-            data: forecastData?.forecast.map(item => item.accounts[account.id] || 0) || [],
-            borderColor: colors[index % colors.length],
-            backgroundColor: colors[index % colors.length] + '20',
-            borderWidth: 2, // Show the lines
-            fill: false,
-            tension: 0.1,
-            pointRadius: 0,
-            pointHoverRadius: 6,
-            pointHoverBackgroundColor: colors[index % colors.length],
-            pointHoverBorderColor: '#fff',
-            pointHoverBorderWidth: 2,
-            datalabels: {
-              display: false // Hide the data point labels
+          const color = colors[index % colors.length];
+          const accountData = forecastData?.forecast.map(item => item.accounts[account.id] || 0) || [];
+          // Prepare data for regression using simple-statistics
+          const regressionData = accountData.map((y, i) => [i, y]);
+          const lr = linearRegression(regressionData);
+          const lrLine = linearRegressionLine(lr);
+          const trendData = accountData.map((_y, i) => lrLine(i));
+          return [
+            {
+              label: account.name,
+              data: accountData,
+              borderColor: color,
+              backgroundColor: color + '20',
+              borderWidth: 2, // Show the lines
+              fill: false,
+              tension: 0.1,
+              pointRadius: 0,
+              pointHoverRadius: 6,
+              pointHoverBackgroundColor: color,
+              pointHoverBorderColor: '#fff',
+              pointHoverBorderWidth: 2,
+              datalabels: {
+                display: false // Hide the data point labels
+              }
+            },
+            {
+              label: `${account.name} Trend`,
+              data: trendData,
+              borderColor: color,
+              borderWidth: 2,
+              borderDash: [8, 6],
+              fill: false,
+              pointRadius: 0,
+              hoverRadius: 0,
+              borderCapStyle: 'round' as CanvasLineCap,
+              backgroundColor: color + '10',
+              datalabels: {
+                display: false
+              },
+              tension: 0,
+              order: 99,
+              hidden: false,
+              spanGaps: true,
+              // Custom property to identify trend lines
+              isTrendLine: true
             }
-          };
-        })
+          ];
+        }).flat()
       // Removed the Today star marker dataset
     ]
   };
@@ -596,7 +634,12 @@ const BalanceForecast = () => {
         position: 'top' as const,
         labels: {
           usePointStyle: true,
-          padding: 20
+          padding: 20,
+          // Hide trend lines from legend
+          filter: (legendItem: any, data: any) => {
+            const dataset = data.datasets[legendItem.datasetIndex];
+            return !dataset.isTrendLine;
+          }
         },
         onClick: (event: any, legendItem: any, legend: any) => {
           // Find the account by name
@@ -607,6 +650,11 @@ const BalanceForecast = () => {
         }
       },
       tooltip: {
+        // Hide trend lines from tooltip
+        filter: (tooltipItem: any) => {
+          const dataset = tooltipItem.dataset;
+          return !dataset.isTrendLine;
+        },
         callbacks: {
           title: function(context: any) {
             const dataIndex = context[0].dataIndex;
@@ -849,6 +897,17 @@ const BalanceForecast = () => {
       <Dialog open={debugModalOpen} onClose={handleCloseDebugModal} maxWidth="md" fullWidth>
         <DialogTitle>Balance Forecast Debug Info</DialogTitle>
         <DialogContent>
+          {/* Show frequency and date info */}
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="subtitle2" color="text.secondary">
+              Forecast Frequency: {disbursementSettings.disbursementFrequency ? (disbursementSettings.disbursementFrequency.charAt(0).toUpperCase() + disbursementSettings.disbursementFrequency.slice(1)) : 'N/A'}
+              {' | '}Disbursement Date: {(() => {
+                if (!disbursementSettings.disbursementFrequency || disbursementSettings.disbursementDay == null) return 'N/A';
+                const date = getDateFromDisbursement(disbursementSettings.disbursementFrequency, disbursementSettings.disbursementDay);
+                return date ? date.toLocaleDateString() : 'N/A';
+              })()}
+            </Typography>
+          </Box>
           {debugLoading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}>
               <CircularProgress />
