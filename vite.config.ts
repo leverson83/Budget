@@ -11,15 +11,19 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
         ws: true,
+        rewrite: (path) => {
+          console.log('🔀 Proxying:', path, '→', `http://localhost:8585${path}`);
+          return path;
+        },
         configure: (proxy, _options) => {
           proxy.on('error', (err, _req, _res) => {
-            console.log('proxy error', err);
+            console.log('❌ Proxy error:', err);
           });
           proxy.on('proxyReq', (proxyReq, req, _res) => {
-            console.log('Sending Request to the Target:', req.method, req.url);
+            console.log('📤 Sending Request to Target:', req.method, req.url, '→ http://localhost:8585');
           });
           proxy.on('proxyRes', (proxyRes, req, _res) => {
-            console.log('Received Response from the Target:', proxyRes.statusCode, req.url);
+            console.log('📥 Received Response from Target:', proxyRes.statusCode, req.url);
           });
         }
       }

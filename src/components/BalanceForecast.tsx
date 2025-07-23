@@ -101,14 +101,21 @@ const BalanceForecast = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedAccounts, setSelectedAccounts] = useState<Set<number>>(new Set());
+  const [modalSelectedAccounts, setModalSelectedAccounts] = useState<Set<number>>(new Set());
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [nextCycleDate, setNextCycleDate] = useState<Date | null>(null);
   const [timePeriod, setTimePeriod] = useState<TimePeriodSettings>({
+    pastMonths: 1,
+    futureMonths: 3
+  });
+  const [modalTimePeriod, setModalTimePeriod] = useState<TimePeriodSettings>({
     pastMonths: 1,
     futureMonths: 3
   });
   const [chartKey, setChartKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [warningLine, setWarningLine] = useState<number | null>(null);
+  const [modalWarningLine, setModalWarningLine] = useState<number | null>(null);
   const [settingsChanged, setSettingsChanged] = useState(false);
   const [debugModalOpen, setDebugModalOpen] = useState(false);
   const [debugInfo, setDebugInfo] = useState<string>('');
@@ -213,7 +220,7 @@ const BalanceForecast = () => {
   };
 
   // Fetch forecast data
-  const fetchForecastData = async (customTimePeriod?: TimePeriodSettings) => {
+  const fetchForecastData = async (customTimePeriod?: TimePeriodSettings, preloadedAccounts?: Set<number>) => {
     setLoading(true);
     setError(null);
     
@@ -233,9 +240,19 @@ const BalanceForecast = () => {
         });
         setForecastData(data);
         
-        // Auto-select all accounts initially
-        const accountIds = new Set(data.accounts.map(acc => acc.id));
-        setSelectedAccounts(accountIds);
+        // Use preloaded accounts if available, otherwise use existing logic
+        if (preloadedAccounts && preloadedAccounts.size > 0) {
+          console.log('✅ Using preloaded account selection:', Array.from(preloadedAccounts));
+          setSelectedAccounts(preloadedAccounts);
+        } else if (!settingsLoaded && selectedAccounts.size === 0) {
+          console.log('🔧 No saved settings loaded yet, defaulting to all accounts');
+          const accountIds = new Set(data.accounts.map(acc => acc.id));
+          setSelectedAccounts(accountIds);
+        } else if (settingsLoaded) {
+          console.log('✅ Settings already loaded, keeping account selection:', Array.from(selectedAccounts));
+        } else {
+          console.log('✅ Keeping existing account selection:', Array.from(selectedAccounts));
+        }
       } else {
         const errorData = await response.json();
         setError(errorData.error || 'Failed to fetch forecast data');
@@ -252,7 +269,9 @@ const BalanceForecast = () => {
     setDebugLoading(true);
     setDebugError(null);
     try {
-      const response = await apiCall(`/balance-forecast-debug?frequency=${frequency}&t=${Date.now()}`);
+      // Convert selected accounts to comma-separated string
+      const accountIds = Array.from(selectedAccounts).join(',');
+      const response = await apiCall(`/balance-forecast-debug?frequency=${frequency}&accounts=${accountIds}&t=${Date.now()}`);
       if (response.ok) {
         const data = await response.json();
         setDebugInfo(data.debug || 'No debug info available.');
@@ -274,35 +293,64 @@ const BalanceForecast = () => {
     setDebugModalOpen(false);
   };
 
+  // Load saved settings on mount
   useEffect(() => {
+    console.log('🔄 Component mounted, loading settings...');
     fetchDisbursementSettings();
-    fetchForecastData();
-    // Load forecast settings (selected accounts, warning line)
-    (async () => {
-      try {
-        const res = await apiCall('/forecast-settings');
-        if (res.ok) {
-          const data = await res.json();
-          if (data.selectedAccounts && Array.isArray(data.selectedAccounts) && data.selectedAccounts.length > 0) {
-            setSelectedAccounts(new Set(data.selectedAccounts));
-          } else if (forecastData && forecastData.accounts) {
-            // If no saved selection, default to all accounts
-            setSelectedAccounts(new Set(forecastData.accounts.map(acc => acc.id)));
-          }
-          if (data.warningLine !== undefined && data.warningLine !== null) {
-            setWarningLine(data.warningLine);
-          }
-        }
-      } catch (err) {
-        // ignore
-      }
-    })();
+    // Load settings first, then fetch forecast data
+    loadSavedSettings().then((loadedAccounts) => {
+      fetchForecastData(undefined, loadedAccounts);
+    });
   }, []);
+
+  const loadSavedSettings = async (): Promise<Set<number> | undefined> => {
+    try {
+      console.log('🌐 Loading settings from:', `${window.location.origin}/api/forecast-settings`);
+      const res = await apiCall('/forecast-settings');
+      if (res.ok) {
+        const data = await res.json();
+        console.log('📥 Loaded from backend:', data);
+        
+        if (data.selectedAccounts && Array.isArray(data.selectedAccounts) && data.selectedAccounts.length > 0) {
+          const accounts = new Set(data.selectedAccounts as number[]);
+          console.log('✅ Using saved account selection:', Array.from(accounts));
+          setSelectedAccounts(accounts);
+          setModalSelectedAccounts(new Set(accounts));
+          
+          const warning = data.warningLine !== undefined && data.warningLine !== null ? data.warningLine : null;
+          setWarningLine(warning);
+          setModalWarningLine(warning);
+          
+          // Mark settings as loaded to prevent overriding
+          setSettingsLoaded(true);
+          
+          return accounts;
+        } else {
+          console.log('🔧 No saved account selection found, will use default');
+          
+          const warning = data.warningLine !== undefined && data.warningLine !== null ? data.warningLine : null;
+          setWarningLine(warning);
+          setModalWarningLine(warning);
+          
+          // Mark settings as loaded to prevent overriding
+          setSettingsLoaded(true);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load settings:', err);
+    }
+    
+    return undefined;
+  };
 
   // Update chart key when forecast data changes
   useEffect(() => {
     if (forecastData) {
       setChartKey(prev => prev + 1);
+      // Only load settings if we have no accounts selected (initial load)
+      if (selectedAccounts.size === 0 && forecastData.accounts.length > 0) {
+        loadSavedSettings();
+      }
     }
   }, [forecastData]);
 
@@ -328,7 +376,8 @@ const BalanceForecast = () => {
     updateDisbursementSettings(disbursementSettings, date);
   };
 
-  const handleAccountToggle = (accountId: number) => {
+  // Handle account toggle from graph legend (immediate save)
+  const handleGraphAccountToggle = async (accountId: number) => {
     const newSelected = new Set(selectedAccounts);
     if (newSelected.has(accountId)) {
       newSelected.delete(accountId);
@@ -336,49 +385,107 @@ const BalanceForecast = () => {
       newSelected.add(accountId);
     }
     setSelectedAccounts(newSelected);
-    setSettingsChanged(true);
-  };
-
-  const handleTimePeriodChange = (field: keyof TimePeriodSettings, value: number) => {
-    console.log('Time period change:', { field, value, currentTimePeriod: timePeriod });
-    const newTimePeriod = { ...timePeriod, [field]: value };
-    console.log('New time period:', newTimePeriod);
-    setTimePeriod(newTimePeriod);
-    setSettingsChanged(true);
-    // Force chart re-render
-    setChartKey(prev => prev + 1);
-    // Refresh forecast data with new time period
-    fetchForecastData(newTimePeriod);
-  };
-
-  const handleWarningLineChange = (value: string) => {
-    const numValue = value === '' ? null : parseFloat(value);
-    setWarningLine(numValue);
-    setSettingsChanged(true);
-  };
-
-  const handleSaveSettings = async () => {
-    // Save settings to backend
+    
+    // Immediately save to backend
     try {
       await apiCall('/forecast-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          selectedAccounts: Array.from(selectedAccounts),
+          selectedAccounts: Array.from(newSelected),
           warningLine
         })
       });
     } catch (err) {
-      // Optionally show error
+      console.error('Failed to save account visibility:', err);
     }
+  };
+
+  // Handle account toggle from modal (temporary change)
+  const handleModalAccountToggle = (accountId: number) => {
+    const newSelected = new Set(modalSelectedAccounts);
+    if (newSelected.has(accountId)) {
+      newSelected.delete(accountId);
+    } else {
+      newSelected.add(accountId);
+    }
+    setModalSelectedAccounts(newSelected);
+    setSettingsChanged(true);
+  };
+
+  const handleModalTimePeriodChange = (field: keyof TimePeriodSettings, value: number) => {
+    const newTimePeriod = { ...modalTimePeriod, [field]: value };
+    setModalTimePeriod(newTimePeriod);
+    setSettingsChanged(true);
+  };
+
+  const handleModalWarningLineChange = (value: string) => {
+    const numValue = value === '' ? null : parseFloat(value);
+    setModalWarningLine(numValue);
+    setSettingsChanged(true);
+  };
+
+  const handleSaveSettings = async () => {
+    console.log('💾 Saving account settings:', Array.from(modalSelectedAccounts));
+    console.log('🌐 Saving settings to:', `${window.location.origin}/api/forecast-settings`);
+
+    // Save settings to backend first
+    try {
+      const response = await apiCall('/forecast-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          selectedAccounts: Array.from(modalSelectedAccounts),
+          warningLine: modalWarningLine
+        })
+      });
+      
+      if (response.ok) {
+        console.log('✅ Settings saved successfully to backend');
+      } else {
+        console.error('❌ Failed to save settings to backend:', response.status);
+      }
+    } catch (err) {
+      console.error('❌ Error saving settings:', err);
+    }
+
+    // Apply modal changes to main state
+    setSelectedAccounts(new Set(modalSelectedAccounts));
+    setTimePeriod({ ...modalTimePeriod });
+    setWarningLine(modalWarningLine);
+
+    // Only refetch data if time period changed
+    const timePeriodChanged = modalTimePeriod.pastMonths !== timePeriod.pastMonths || 
+                             modalTimePeriod.futureMonths !== timePeriod.futureMonths;
+    
+    if (timePeriodChanged) {
+      fetchForecastData(modalTimePeriod);
+    }
+    
+    // Force chart re-render after state updates
+    setChartKey(prev => prev + 1);
+    
+    setSettingsChanged(false);
+    setSettingsOpen(false);
+
+    console.log('🎯 New selectedAccounts applied to chart:', Array.from(modalSelectedAccounts));
+  };
+
+  const handleCancelSettings = () => {
+    // Revert modal state to current saved state
+    setModalSelectedAccounts(new Set(selectedAccounts));
+    setModalTimePeriod(timePeriod);
+    setModalWarningLine(warningLine);
     setSettingsChanged(false);
     setSettingsOpen(false);
   };
 
-  const handleCancelSettings = () => {
-    // TODO: Revert changes if needed
-    setSettingsChanged(false);
-    setSettingsOpen(false);
+  const handleOpenSettings = () => {
+    // Initialize modal state with current values
+    setModalSelectedAccounts(new Set(selectedAccounts));
+    setModalTimePeriod(timePeriod);
+    setModalWarningLine(warningLine);
+    setSettingsOpen(true);
   };
 
   if (loading) {
@@ -399,12 +506,12 @@ const BalanceForecast = () => {
 
   // Always render the chart and settings icon, even if forecastData is missing
   // Prepare chart data
+  const filteredAccounts = (forecastData?.accounts || []).filter(account => selectedAccounts.has(account.id));
+
   const chartData = {
     labels: forecastData?.forecast.map(item => new Date(item.date)) || [],
     datasets: [
-      ...(forecastData?.accounts || [])
-        .filter(account => selectedAccounts.has(account.id))
-        .map((account, index) => {
+      ...filteredAccounts.map((account, index) => {
           const colors = [
             '#1976d2', '#dc004e', '#388e3c', '#f57c00', '#7b1fa2', 
             '#d32f2f', '#388e3c', '#f57c00', '#7b1fa2', '#1976d2'
@@ -455,6 +562,13 @@ const BalanceForecast = () => {
         labels: {
           usePointStyle: true,
           padding: 20
+        },
+        onClick: (event: any, legendItem: any, legend: any) => {
+          // Find the account by name
+          const account = forecastData?.accounts.find(acc => acc.name === legendItem.text);
+          if (account) {
+            handleGraphAccountToggle(account.id);
+          }
         }
       },
       tooltip: {
@@ -623,9 +737,9 @@ const BalanceForecast = () => {
              <FormControl fullWidth>
                <InputLabel>Past</InputLabel>
                <Select
-                 value={timePeriod.pastMonths}
+                 value={modalTimePeriod.pastMonths}
                  label="Past"
-                 onChange={(e) => handleTimePeriodChange('pastMonths', e.target.value as number)}
+                 onChange={(e) => handleModalTimePeriodChange('pastMonths', e.target.value as number)}
                >
                  <MenuItem value={1}>1 Month</MenuItem>
                  <MenuItem value={2}>2 Months</MenuItem>
@@ -635,9 +749,9 @@ const BalanceForecast = () => {
              <FormControl fullWidth>
                <InputLabel>Future</InputLabel>
                <Select
-                 value={timePeriod.futureMonths}
+                 value={modalTimePeriod.futureMonths}
                  label="Future"
-                 onChange={(e) => handleTimePeriodChange('futureMonths', e.target.value as number)}
+                 onChange={(e) => handleModalTimePeriodChange('futureMonths', e.target.value as number)}
                >
                  <MenuItem value={1}>1 Month</MenuItem>
                  <MenuItem value={2}>2 Months</MenuItem>
@@ -657,8 +771,8 @@ const BalanceForecast = () => {
            <TextField
              label="Warning Amount"
              type="number"
-             value={warningLine || ''}
-             onChange={(e) => handleWarningLineChange(e.target.value)}
+             value={modalWarningLine || ''}
+             onChange={(e) => handleModalWarningLineChange(e.target.value)}
              fullWidth
              sx={{ mb: 2 }}
              inputProps={{ step: '0.01', min: 0 }}
@@ -675,13 +789,13 @@ const BalanceForecast = () => {
                  key={account.id}
                  sx={{ 
                    cursor: 'pointer',
-                   border: selectedAccounts.has(account.id) ? '2px solid #1976d2' : '2px solid transparent',
+                   border: modalSelectedAccounts.has(account.id) ? '2px solid #1976d2' : '2px solid transparent',
                    '&:hover': {
                      border: '2px solid #1976d2',
                      opacity: 0.8
                    }
                  }}
-                 onClick={() => handleAccountToggle(account.id)}
+                 onClick={() => handleModalAccountToggle(account.id)}
                >
                  <CardContent sx={{ p: 1, textAlign: 'center' }}>
                    <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
@@ -732,7 +846,7 @@ const BalanceForecast = () => {
            <IconButton aria-label="Show Debug Info" onClick={handleOpenDebugModal}>
              <InfoIcon />
            </IconButton>
-           <IconButton aria-label="Forecast Settings" onClick={() => setSettingsOpen(true)}>
+           <IconButton aria-label="Forecast Settings" onClick={handleOpenSettings}>
              <SettingsIcon />
            </IconButton>
          </Box>

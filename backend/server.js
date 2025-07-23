@@ -2301,7 +2301,126 @@ function appendDebugLog(line) {
 
 // GET debug log endpoint
 app.get('/api/balance-forecast-debug', authenticateToken, (req, res) => {
-  res.json({ debug: lastBalanceForecastDebugLog });
+  const accountsParam = req.query.accounts;
+
+  // If no specific accounts requested, return the cached debug log
+  if (!accountsParam) {
+    return res.json({ debug: lastBalanceForecastDebugLog });
+  }
+
+  // Parse requested account IDs
+  const requestedAccountIds = accountsParam.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+
+  if (requestedAccountIds.length === 0) {
+    return res.json({ debug: 'No valid account IDs provided.' });
+  }
+
+  // Get the active version ID
+  db.get('SELECT id FROM budget_versions WHERE user_id = ? AND is_active = 1', [req.user.userId], (err, version) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!version) return res.status(404).json({ error: 'No active version found' });
+
+    // Get account names for filtering
+    db.all('SELECT name FROM accounts WHERE user_id = ? AND version_id = ? AND id IN (' + requestedAccountIds.map(() => '?').join(',') + ')',
+      [req.user.userId, version.id, ...requestedAccountIds], (err, accounts) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      if (accounts.length === 0) {
+        return res.json({ debug: 'No matching accounts found for the requested IDs.' });
+      }
+
+      const accountNames = accounts.map(a => a.name);
+
+      if (!lastBalanceForecastDebugLog) {
+        return res.json({ debug: 'No cached debug log available. Please run a balance forecast first.' });
+      }
+
+      // Split the debug log into lines
+      const lines = lastBalanceForecastDebugLog.split('\n');
+      let filteredLines = [];
+      let foundAnySection = false;
+
+      // Detect if the log uses a single preview section
+      const previewSectionIdx = lines.findIndex(line => line.includes('=== Account Deposit & Expense Preview ==='));
+      if (previewSectionIdx !== -1) {
+        // Copy all lines up to and including the preview section header
+        for (let i = 0; i <= previewSectionIdx; i++) {
+          filteredLines.push(lines[i]);
+        }
+        // For each selected account, extract its block
+        let foundAccountBlock = false;
+        for (const accountName of accountNames) {
+          // Find the header for this account (e.g., '--- Account: Family ---' or 'Family:')
+          const headerIdx = lines.findIndex((line, idx) => idx > previewSectionIdx && (line.trim().startsWith(accountName + ':') || line.trim() === `--- Account: ${accountName} ---`));
+          if (headerIdx !== -1) {
+            foundAccountBlock = true;
+            // Always add a clear section header for the account
+            filteredLines.push(`--- Account: ${accountName} ---`);
+            // Copy all lines from headerIdx+1 until the next header for any account or end of preview section
+            let i = headerIdx + 1;
+            while (i < lines.length) {
+              const line = lines[i];
+              // If this is a header for any account (even if not selected), break
+              const isAnyAccountHeader = lines.slice(previewSectionIdx + 1).some((l, idx2) => idx2 !== (i - (previewSectionIdx + 1)) && (l.trim().startsWith(accountName + ':') || l.trim().match(/^--- Account: .+ ---$/)));
+              if (accountNames.concat([]).some(name => line.trim().startsWith(name + ':')) && line.trim() !== (accountName + ':')) break;
+              if (line.trim().match(/^--- Account: .+ ---$/) && line.trim() !== `--- Account: ${accountName} ---`) break;
+              if (line.startsWith('===') && !line.includes('Account Deposit & Expense Preview')) break;
+              filteredLines.push(line);
+              i++;
+            }
+            filteredLines.push(''); // Blank line between accounts
+          }
+        }
+        foundAnySection = foundAccountBlock;
+        // If no account blocks found, fall back to the full preview section
+        if (!foundAnySection) {
+          for (let i = previewSectionIdx + 1; i < lines.length; i++) {
+            filteredLines.push(lines[i]);
+          }
+        }
+      }
+
+      // If not a preview section, use per-account section filtering
+      if (!foundAnySection) {
+        let inSelectedSection = false;
+        let currentAccount = null;
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          // Always include the global header and summary lines
+          if (i === 0 || line.startsWith('Starting balance forecast') || line.startsWith('Frequency:') || line.startsWith('Past months:') || line.startsWith('Future months:') || line.startsWith('Generated:') || line.startsWith('Total income:') || line.startsWith('Total expenses:') || line.trim() === '') {
+            filteredLines.push(line);
+            continue;
+          }
+          // Detect start of an account section
+          const accountSectionMatch = line.match(/^(===|---)\s*Account:\s*([^=\-]+?)(?:\s*(?:===|---))?/);
+          if (accountSectionMatch) {
+            currentAccount = accountSectionMatch[2].trim();
+            inSelectedSection = accountNames.includes(currentAccount);
+            // Only include the section header if this account is selected
+            if (inSelectedSection) {
+              filteredLines.push(line);
+            }
+            continue;
+          }
+          // If we're in a selected account section, include all lines until the next account section
+          if (inSelectedSection) {
+            filteredLines.push(line);
+          }
+        }
+      }
+
+      // If nothing was included, fall back to the full debug log
+      const hasContent = filteredLines.filter(l => l.trim() !== '').length > 2; // more than just header/summary
+      let filteredDebug;
+      if (!hasContent) {
+        filteredDebug = lastBalanceForecastDebugLog;
+      } else {
+        filteredDebug = `=== FILTERED DEBUG (Selected Accounts: ${accountNames.join(', ')}) ===\n\n${filteredLines.join('\n')}`;
+      }
+
+      res.json({ debug: filteredDebug });
+    });
+  });
 });
 
 // Balance forecasting endpoint
@@ -3612,30 +3731,6 @@ app.delete('/api/manual-adjustments/:id', authenticateToken, (req, res) => {
   });
 });
 
-// Catch-all handler: send back React's index.html file for any non-API routes
-app.get('*', (req, res) => {
-  // Don't serve index.html for API routes
-  if (req.path.startsWith('/api/')) {
-    return res.status(404).json({ error: 'Not found' });
-  }
-  
-  res.sendFile(path.join(__dirname, '../public/index.html'));
-});
-
-// Add error handling middleware before app.listen
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ error: 'Internal server error' });
-});
-
-// Start server
-app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`JWT Secret: ${JWT_SECRET ? 'Set' : 'Not set'}`);
-  console.log(`Database path: ${dbPath}`);
-});
-
 // GET forecast settings
 app.get('/api/forecast-settings', authenticateToken, (req, res) => {
   db.get('SELECT id FROM budget_versions WHERE user_id = ? AND is_active = 1', [req.user.userId], (err, version) => {
@@ -3678,3 +3773,27 @@ app.post('/api/forecast-settings', authenticateToken, (req, res) => {
     });
   });
 }); 
+
+// Catch-all handler: send back React's index.html file for any non-API routes
+app.get('*', (req, res) => {
+  // Don't serve index.html for API routes
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+
+  res.sendFile(path.join(__dirname, '../public/index.html'));
+});
+
+// Add error handling middleware before app.listen
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+// Start server
+app.listen(port, () => {
+  console.log(`Server running at http://localhost:${port}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`JWT Secret: ${JWT_SECRET ? 'Set' : 'Not set'}`);
+  console.log(`Database path: ${dbPath}`);
+});  
