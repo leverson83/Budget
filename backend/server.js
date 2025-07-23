@@ -296,7 +296,10 @@ const db = new sqlite3.Database(dbPath, (err) => {
           version_id INTEGER NOT NULL,
           selected_accounts TEXT,
           warning_line REAL,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          past_months INTEGER,
+          future_months INTEGER,
+          frequency TEXT,
+          disbursement_day INTEGER,
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           UNIQUE(user_id, version_id),
           FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -2343,10 +2346,9 @@ app.get('/api/balance-forecast-debug', authenticateToken, (req, res) => {
       // Detect if the log uses a single preview section
       const previewSectionIdx = lines.findIndex(line => line.includes('=== Account Deposit & Expense Preview ==='));
       if (previewSectionIdx !== -1) {
-        // Copy all lines up to and including the preview section header
-        for (let i = 0; i <= previewSectionIdx; i++) {
-          filteredLines.push(lines[i]);
-        }
+        // Custom header
+        filteredLines.push(`Next 100 day data modelling for the following accounts: [${accountNames.join(', ')}]`);
+        filteredLines.push('');
         // For each selected account, extract its block
         let foundAccountBlock = false;
         for (const accountName of accountNames) {
@@ -2361,7 +2363,6 @@ app.get('/api/balance-forecast-debug', authenticateToken, (req, res) => {
             while (i < lines.length) {
               const line = lines[i];
               // If this is a header for any account (even if not selected), break
-              const isAnyAccountHeader = lines.slice(previewSectionIdx + 1).some((l, idx2) => idx2 !== (i - (previewSectionIdx + 1)) && (l.trim().startsWith(accountName + ':') || l.trim().match(/^--- Account: .+ ---$/)));
               if (accountNames.concat([]).some(name => line.trim().startsWith(name + ':')) && line.trim() !== (accountName + ':')) break;
               if (line.trim().match(/^--- Account: .+ ---$/) && line.trim() !== `--- Account: ${accountName} ---`) break;
               if (line.startsWith('===') && !line.includes('Account Deposit & Expense Preview')) break;
@@ -2415,7 +2416,7 @@ app.get('/api/balance-forecast-debug', authenticateToken, (req, res) => {
       if (!hasContent) {
         filteredDebug = lastBalanceForecastDebugLog;
       } else {
-        filteredDebug = `=== FILTERED DEBUG (Selected Accounts: ${accountNames.join(', ')}) ===\n\n${filteredLines.join('\n')}`;
+        filteredDebug = filteredLines.join('\n');
       }
 
       res.json({ debug: filteredDebug });
@@ -3739,15 +3740,23 @@ app.get('/api/forecast-settings', authenticateToken, (req, res) => {
       if (err) return res.status(500).json({ error: err.message });
       if (!row) {
         console.log('[forecast-settings][GET] No row found for user', req.user.userId, 'version', version.id);
-        return res.json({ selectedAccounts: null, warningLine: null });
+        return res.json({ selectedAccounts: null, warningLine: null, pastMonths: null, futureMonths: null, frequency: null, disbursementDay: null });
       }
       console.log('[forecast-settings][GET] Returning:', {
         selectedAccounts: row.selected_accounts,
-        warningLine: row.warning_line
+        warningLine: row.warning_line,
+        pastMonths: row.past_months,
+        futureMonths: row.future_months,
+        frequency: row.frequency,
+        disbursementDay: row.disbursement_day
       });
       res.json({
         selectedAccounts: row.selected_accounts ? JSON.parse(row.selected_accounts) : null,
-        warningLine: row.warning_line || null
+        warningLine: row.warning_line || null,
+        pastMonths: row.past_months || null,
+        futureMonths: row.future_months || null,
+        frequency: row.frequency || null,
+        disbursementDay: row.disbursement_day || null
       });
     });
   });
@@ -3755,24 +3764,28 @@ app.get('/api/forecast-settings', authenticateToken, (req, res) => {
 
 // POST forecast settings
 app.post('/api/forecast-settings', authenticateToken, (req, res) => {
-  const { selectedAccounts, warningLine } = req.body;
-  console.log('[forecast-settings][POST] Saving:', { selectedAccounts, warningLine, user: req.user.userId });
+  const { selectedAccounts, warningLine, pastMonths, futureMonths, frequency, disbursementDay } = req.body;
+  console.log('[forecast-settings][POST] Saving:', { selectedAccounts, warningLine, pastMonths, futureMonths, frequency, disbursementDay, user: req.user.userId });
   db.get('SELECT id FROM budget_versions WHERE user_id = ? AND is_active = 1', [req.user.userId], (err, version) => {
     if (err || !version) return res.status(400).json({ error: 'No active version found.' });
     db.run(`
-      INSERT INTO forecast_settings (user_id, version_id, selected_accounts, warning_line, updated_at)
-      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+      INSERT INTO forecast_settings (user_id, version_id, selected_accounts, warning_line, past_months, future_months, frequency, disbursement_day, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(user_id, version_id) DO UPDATE SET
         selected_accounts=excluded.selected_accounts,
         warning_line=excluded.warning_line,
+        past_months=excluded.past_months,
+        future_months=excluded.future_months,
+        frequency=excluded.frequency,
+        disbursement_day=excluded.disbursement_day,
         updated_at=CURRENT_TIMESTAMP
-    `, [req.user.userId, version.id, JSON.stringify(selectedAccounts), warningLine], function(err) {
+    `, [req.user.userId, version.id, JSON.stringify(selectedAccounts), warningLine, pastMonths, futureMonths, frequency, disbursementDay], function(err) {
       if (err) return res.status(500).json({ error: err.message });
       console.log('[forecast-settings][POST] Saved for user', req.user.userId, 'version', version.id);
       res.json({ success: true });
     });
   });
-}); 
+});
 
 // Catch-all handler: send back React's index.html file for any non-API routes
 app.get('*', (req, res) => {

@@ -295,13 +295,16 @@ const BalanceForecast = () => {
 
   // Load saved settings on mount
   useEffect(() => {
-    console.log('🔄 Component mounted, loading settings...');
-    fetchDisbursementSettings();
-    // Load settings first, then fetch forecast data
-    loadSavedSettings().then((loadedAccounts) => {
-      fetchForecastData(undefined, loadedAccounts);
-    });
+    loadSavedSettings();
   }, []);
+
+  // Fetch forecast data when settings are loaded and timePeriod changes
+  useEffect(() => {
+    if (settingsLoaded && timePeriod.pastMonths && timePeriod.futureMonths) {
+      fetchForecastData(timePeriod);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsLoaded, timePeriod.pastMonths, timePeriod.futureMonths]);
 
   const loadSavedSettings = async (): Promise<Set<number> | undefined> => {
     try {
@@ -310,6 +313,7 @@ const BalanceForecast = () => {
       if (res.ok) {
         const data = await res.json();
         console.log('📥 Loaded from backend:', data);
+        let loadedPeriod: { pastMonths: number, futureMonths: number } | undefined = undefined;
         
         if (data.selectedAccounts && Array.isArray(data.selectedAccounts) && data.selectedAccounts.length > 0) {
           const accounts = new Set(data.selectedAccounts as number[]);
@@ -320,26 +324,53 @@ const BalanceForecast = () => {
           const warning = data.warningLine !== undefined && data.warningLine !== null ? data.warningLine : null;
           setWarningLine(warning);
           setModalWarningLine(warning);
-          
+
+          // Load period settings
+          if (data.pastMonths !== undefined && data.futureMonths !== undefined) {
+            setTimePeriod({ pastMonths: data.pastMonths, futureMonths: data.futureMonths });
+            setModalTimePeriod({ pastMonths: data.pastMonths, futureMonths: data.futureMonths });
+            loadedPeriod = { pastMonths: data.pastMonths, futureMonths: data.futureMonths };
+          }
+          if (data.frequency !== undefined && data.disbursementDay !== undefined) {
+            setDisbursementSettings({
+              disbursementFrequency: data.frequency,
+              disbursementDay: data.disbursementDay
+            });
+          }
+
           // Mark settings as loaded to prevent overriding
           setSettingsLoaded(true);
-          
+          // Fetch forecast data with loaded period
+          if (loadedPeriod) {
+            fetchForecastData(loadedPeriod, accounts);
+          }
           return accounts;
         } else {
           console.log('🔧 No saved account selection found, will use default');
-          
           const warning = data.warningLine !== undefined && data.warningLine !== null ? data.warningLine : null;
           setWarningLine(warning);
           setModalWarningLine(warning);
-          
-          // Mark settings as loaded to prevent overriding
+          // Load period settings
+          if (data.pastMonths !== undefined && data.futureMonths !== undefined) {
+            setTimePeriod({ pastMonths: data.pastMonths, futureMonths: data.futureMonths });
+            setModalTimePeriod({ pastMonths: data.pastMonths, futureMonths: data.futureMonths });
+            loadedPeriod = { pastMonths: data.pastMonths, futureMonths: data.futureMonths };
+          }
+          if (data.frequency !== undefined && data.disbursementDay !== undefined) {
+            setDisbursementSettings({
+              disbursementFrequency: data.frequency,
+              disbursementDay: data.disbursementDay
+            });
+          }
           setSettingsLoaded(true);
+          if (loadedPeriod) {
+            fetchForecastData(loadedPeriod);
+          }
         }
       }
     } catch (err) {
       console.error('Failed to load settings:', err);
     }
-    
     return undefined;
   };
 
@@ -436,7 +467,11 @@ const BalanceForecast = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           selectedAccounts: Array.from(modalSelectedAccounts),
-          warningLine: modalWarningLine
+          warningLine: modalWarningLine,
+          pastMonths: modalTimePeriod.pastMonths,
+          futureMonths: modalTimePeriod.futureMonths,
+          frequency: disbursementSettings.disbursementFrequency,
+          disbursementDay: disbursementSettings.disbursementDay
         })
       });
       
@@ -616,15 +651,7 @@ const BalanceForecast = () => {
                   yMax: warningLine,
                   borderColor: '#ff4444',
                   borderWidth: 2,
-                  borderDash: [4, 4],
-                  label: {
-                    display: true,
-                    content: `Warning: ${formatCurrency(warningLine)}`,
-                    position: 'start' as const,
-                    backgroundColor: '#ff4444',
-                    color: '#fff',
-                    font: { weight: 'bold' as const }
-                  }
+                  borderDash: [4, 4]
                 }
               }
             : {})
