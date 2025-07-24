@@ -255,7 +255,24 @@ const OnTrack = () => {
                         }
                       }
                     },
-                    datalabels: { display: false },
+                    // @ts-ignore: datalabels is a Chart.js plugin and may not be typed in options
+                    datalabels: {
+                      display: true,
+                      formatter: (value: number, context: any) => {
+                        const label = context.chart.data.labels[context.dataIndex];
+                        return label;
+                      },
+                      color: '#fff',
+                      font: {
+                        weight: 'bold',
+                        size: 13,
+                      },
+                      anchor: 'center',
+                      align: 'end',
+                      offset: 20,
+                      clamp: true,
+                      clip: false,
+                    },
                   },
                 }}
               />
