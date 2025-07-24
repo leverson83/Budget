@@ -47,10 +47,10 @@ const Sidebar = () => {
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
 
   const baseMenuItems = [
-    { text: 'Home', icon: <TrackChangesIcon />, path: '/ontrack' },
+    { text: 'Home', icon: <TrackChangesIcon />, path: '/' },
     { text: 'Income', icon: <AttachMoneyIcon />, path: '/income' },
     { text: 'Expenses', icon: <AccountBalanceIcon />, path: '/expenses' },
-    { text: 'Tracking', icon: <DashboardIcon />, path: '/' },
+    { text: 'Tracking', icon: <DashboardIcon />, path: '/tracking' },
   ];
 
   const conditionalMenuItems = [

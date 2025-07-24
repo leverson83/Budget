@@ -10,6 +10,8 @@ interface SettingsContextType {
   refreshSettings: () => void;
   refreshAllData: () => void;
   versionChangeTrigger: number;
+  getChartType: (graphKey: string) => string | undefined;
+  setChartType: (graphKey: string, chartType: string) => void;
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -31,6 +33,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
   const [showSchedulePage, setShowSchedulePage] = useState(true);
   const [showAccountsPage, setShowAccountsPage] = useState(true);
   const [versionChangeTrigger, setVersionChangeTrigger] = useState(0);
+  const [chartTypes, setChartTypes] = useState<{ [key: string]: string }>({});
 
   const fetchSettings = async () => {
     try {
@@ -40,6 +43,15 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
         setShowPlanningPage(settings.showPlanningPage !== false);
         setShowSchedulePage(settings.showSchedulePage !== false);
         setShowAccountsPage(settings.showAccountsPage !== false);
+        // Load chart types from settings (keys starting with 'chartType:')
+        const loadedChartTypes: { [key: string]: string } = {};
+        Object.keys(settings).forEach((key) => {
+          if (key.startsWith('chartType:')) {
+            const graphKey = key.replace('chartType:', '');
+            loadedChartTypes[graphKey] = settings[key];
+          }
+        });
+        setChartTypes(loadedChartTypes);
       }
     } catch (error) {
       console.error('Error fetching settings:', error);
@@ -77,6 +89,24 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     setVersionChangeTrigger(prev => prev + 1);
   };
 
+  const getChartType = (graphKey: string) => {
+    return chartTypes[graphKey];
+  };
+
+  const setChartType = async (graphKey: string, chartType: string) => {
+    setChartTypes((prev) => ({ ...prev, [graphKey]: chartType }));
+    // Save to backend
+    try {
+      await apiCall('/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [`chartType:${graphKey}`]: chartType })
+      });
+    } catch (error) {
+      console.error('Error saving chart type:', error);
+    }
+  };
+
   useEffect(() => {
     fetchSettings();
   }, []);
@@ -89,7 +119,9 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       updateSettings,
       refreshSettings,
       refreshAllData,
-      versionChangeTrigger
+      versionChangeTrigger,
+      getChartType,
+      setChartType
     }}>
       {children}
     </SettingsContext.Provider>

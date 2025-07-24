@@ -1,8 +1,5 @@
 import { useState, useEffect } from 'react';
 import { Box, Typography, CircularProgress, Alert, Select, MenuItem, FormControl, InputLabel, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Checkbox, TextField, FormControlLabel } from '@mui/material';
-import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
-import { Pie } from 'react-chartjs-2';
-import ChartDataLabels from 'chartjs-plugin-datalabels';
 import { type Frequency, frequencies } from '../config';
 import { useFrequency } from '../contexts/FrequencyContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -12,8 +9,6 @@ import BalanceForecast from './BalanceForecast';
 import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Visibility as VisibilityIcon, VisibilityOff as VisibilityOffIcon, TrendingUp as TrendingUpIcon, TrendingDown as TrendingDownIcon, AccountBalance as AccountBalanceIcon, AttachMoney as AttachMoneyIcon, Schedule as ScheduleIcon, Settings as SettingsIcon, PieChart as PieChartIcon, BarChart as BarChartIcon, CalendarToday as CalendarTodayIcon, Info as InfoIcon, Warning as WarningIcon, CheckCircle as CheckCircleIcon, Error as ErrorIcon, Star as StarIcon, StarBorder as StarBorderIcon, Share as ShareIcon, ContentCopy as ContentCopyIcon, MoreVert as MoreVertIcon, Menu as MenuIcon, Close as CloseIcon, Save as SaveIcon, Cancel as CancelIcon, Refresh as RefreshIcon, Download as DownloadIcon, Upload as UploadIcon, Print as PrintIcon, Email as EmailIcon, Phone as PhoneIcon, LocationOn as LocationOnIcon, AccessTime as AccessTimeIcon, DateRange as DateRangeIcon, Today as TodayIcon, Event as EventIcon, Notifications as NotificationsIcon, NotificationsActive as NotificationsActiveIcon, NotificationsNone as NotificationsNoneIcon, NotificationsOff as NotificationsOffIcon, NotificationsPaused as NotificationsPausedIcon, NotificationsNoneOutlined as NotificationsNoneOutlinedIcon, NotificationsActiveOutlined as NotificationsActiveOutlinedIcon, NotificationsOffOutlined as NotificationsOffOutlinedIcon, NotificationsPausedOutlined as NotificationsPausedOutlinedIcon, NotificationsNoneRounded as NotificationsNoneRoundedIcon, NotificationsActiveRounded as NotificationsActiveRoundedIcon, NotificationsOffRounded as NotificationsOffRoundedIcon, NotificationsPausedRounded as NotificationsPausedRoundedIcon, NotificationsNoneSharp as NotificationsNoneSharpIcon, NotificationsActiveSharp as NotificationsActiveSharpIcon, NotificationsOffSharp as NotificationsOffSharpIcon, NotificationsPausedSharp as NotificationsPausedSharpIcon, NotificationsNoneTwoTone as NotificationsNoneTwoToneIcon, NotificationsActiveTwoTone as NotificationsActiveTwoToneIcon, NotificationsOffTwoTone as NotificationsOffTwoToneIcon, NotificationsPausedTwoTone as NotificationsPausedTwoToneIcon } from '@mui/icons-material';
 import { format, parseISO, addDays, subDays, startOfDay, endOfDay, isWithinInterval, isSameDay, differenceInDays, addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isWeekend, isMonday, isTuesday, isWednesday, isThursday, isFriday, isSaturday, isSunday, getDay, getWeek, getMonth, getYear, getQuarter, getISOWeek, getISOWeekYear } from 'date-fns';
 import { useAuth } from '../contexts/AuthContext';
-
-ChartJS.register(ArcElement, Tooltip, Legend, ChartDataLabels);
 
 interface IncomeEntry {
   id: string;
@@ -586,35 +581,6 @@ const Dashboard = () => {
     setEditableBalances({});
   };
 
-  const handlePieChartClick = (_event: any, elements: any[]) => {
-    if (elements.length > 0) {
-      const index = elements[0].index;
-      const labels = (() => {
-        const allTags = expenses.flatMap(expense => expense.tags || []);
-        const uniqueTags = [...new Set(allTags)];
-        const labels = uniqueTags.length > 0 ? uniqueTags : ['No Tags'];
-        // Add Savings to the labels
-        const totalIncome = calculateTotalForFrequency(incomes, frequency);
-        const totalExpenses = calculateTotalForFrequency(expenses, frequency);
-        const savings = totalIncome - totalExpenses;
-        if (savings > 0) {
-          labels.push('Savings');
-        }
-        return labels;
-      })();
-      
-      const clickedLabel = labels[index];
-      
-      // Don't navigate for "Savings" or "No Tags"
-      if (clickedLabel === 'Savings' || clickedLabel === 'No Tags') {
-        return;
-      }
-      
-      // Navigate to expenses page with tag filter
-      navigate(`/expenses?tags=${encodeURIComponent(clickedLabel)}`);
-    }
-  };
-
   const handleAccountClick = (accountId: number) => {
     // Only allow navigation when not in audit mode
     if (!isAuditing) {
@@ -627,7 +593,7 @@ const Dashboard = () => {
 
   return (
     <>
-    <Box sx={{ p: 3 }}>
+      <Box sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', mb: 4, flexWrap: 'wrap', gap: 2 }}>
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
             <FormControl size="small" sx={{ minWidth: 150 }}>
@@ -658,12 +624,12 @@ const Dashboard = () => {
           )}
 
           {primaryAccount && otherAccounts.length > 0 && (
-      <Box sx={{ 
-        display: 'flex', 
+            <Box sx={{ 
+              display: 'flex', 
               justifyContent: 'center', 
               gap: 4, 
               position: 'relative', 
-        flexWrap: 'wrap',
+              flexWrap: 'wrap',
               '&::before': {
                 content: '""',
                 position: 'absolute',
@@ -707,139 +673,12 @@ const Dashboard = () => {
               })}
             </Box>
           )}
-      </Box>
+        </Box>
 
-        {/* Expenses by Tag Pie Chart */}
-        {expenses.length > 0 && (
-          <Box sx={{ mt: 6, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <Typography variant="h5" sx={{ mb: 3, fontWeight: 'bold' }}>
-              Expenses by Tag
-            </Typography>
-            <Box sx={{ width: '100%', maxWidth: 600, height: 400, cursor: 'pointer' }}>
-              <Pie 
-                data={{
-                  labels: (() => {
-                    const allTags = expenses.flatMap(expense => expense.tags || []);
-                    const uniqueTags = [...new Set(allTags)];
-                    const labels = uniqueTags.length > 0 ? uniqueTags : ['No Tags'];
-                    // Add Savings to the labels
-                    const totalIncome = calculateTotalForFrequency(incomes, frequency);
-                    const totalExpenses = calculateTotalForFrequency(expenses, frequency);
-                    const savings = totalIncome - totalExpenses;
-                    if (savings > 0) {
-                      labels.push('Savings');
-                    }
-                    return labels;
-                  })(),
-                  datasets: [{
-                    data: (() => {
-                      const allTags = expenses.flatMap(expense => expense.tags || []);
-                      const uniqueTags = [...new Set(allTags)];
-                      
-                      let data = [];
-                      if (uniqueTags.length === 0) {
-                        // If no tags, show total expenses as "No Tags"
-                        data.push(calculateTotalForFrequency(expenses, frequency));
-                      } else {
-                        data = uniqueTags.map(tag => {
-                          const tagExpenses = expenses.filter(expense => 
-                            expense.tags && expense.tags.includes(tag)
-                          );
-                          return calculateTotalForFrequency(tagExpenses, frequency);
-                        });
-                      }
-                      
-                      // Add savings to the data
-                      const totalIncome = calculateTotalForFrequency(incomes, frequency);
-                      const totalExpenses = calculateTotalForFrequency(expenses, frequency);
-                      const savings = totalIncome - totalExpenses;
-                      if (savings > 0) {
-                        data.push(savings);
-                      }
-                      
-                      return data;
-                    })(),
-                    backgroundColor: (() => {
-                      const allTags = expenses.flatMap(expense => expense.tags || []);
-                      const uniqueTags = [...new Set(allTags)];
-                      
-                      let colors = [];
-                      if (uniqueTags.length === 0) {
-                        // If no tags, use a neutral color for "No Tags"
-                        colors.push('#C9CBCF');
-                      } else {
-                        // Use custom colors for each tag
-                        colors = uniqueTags.map(tag => getTagColor(tag, tags));
-                      }
-                      
-                      // Add green color for savings
-                      const totalIncome = calculateTotalForFrequency(incomes, frequency);
-                      const totalExpenses = calculateTotalForFrequency(expenses, frequency);
-                      const savings = totalIncome - totalExpenses;
-                      if (savings > 0) {
-                        colors.push('#4CAF50'); // Green for savings
-                      }
-                      
-                      return colors;
-                    })(),
-                    borderWidth: 2,
-                    borderColor: '#fff'
-                  }]
-                }}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  onClick: handlePieChartClick,
-                  plugins: {
-                    legend: {
-                      display: false
-                    },
-                    tooltip: {
-                      callbacks: {
-                        label: function(context) {
-                          const label = context.label || '';
-                          const value = context.parsed;
-                          const total = context.dataset.data.reduce((sum: number, val: number) => sum + val, 0);
-                          const percentage = ((value / total) * 100).toFixed(1);
-                          const isClickable = label !== 'Savings' && label !== 'No Tags';
-                          return `${label}: ${formatCurrency(value)} (${percentage}%)${isClickable ? ' - Click to filter' : ''}`;
-                        }
-                      }
-                    },
-                    datalabels: {
-                      display: function(context: any) {
-                        const value = context.dataset.data[context.dataIndex];
-                        const total = context.dataset.data.reduce((sum: number, val: number) => sum + val, 0);
-                        const percentage = (value / total) * 100;
-                        return percentage > 5;
-                      },
-                      color: '#fff',
-                      font: {
-                        weight: 'bold',
-                        size: 10
-                      },
-                      formatter: function(_value: number, context: any) {
-                        const label = context.chart.data.labels[context.dataIndex];
-                        return label;
-                      },
-                      textAlign: 'center',
-                      textStrokeColor: 'rgba(0,0,0,0.5)',
-                      textStrokeWidth: 2
-                    }
-                  }
-                }} 
-              />
-            </Box>
-            <Typography variant="caption" sx={{ mt: 1, color: 'text.secondary', textAlign: 'center' }}>
-              Click on a tag segment to view filtered expenses
-            </Typography>
-          </Box>
-        )}
-      </Box>
-
-      {/* Balance Forecast */}
-      <Box sx={{ mt: 6 }}>
-        <BalanceForecast />
+        {/* Balance Forecast */}
+        <Box sx={{ mt: 6 }}>
+          <BalanceForecast />
+        </Box>
       </Box>
 
       <Dialog 

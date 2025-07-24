@@ -95,12 +95,28 @@ const MainApp = () => {
                     bgcolor: 'background.default'
                   }}
                 >
+                  <OnTrack />
+                </Box>
+              </Box>
+            </ProtectedRoute>
+          } />
+          <Route path="/tracking" element={
+            <ProtectedRoute>
+              <Box sx={{ display: 'flex' }}>
+                <Sidebar />
+                <Box
+                  component="main"
+                  sx={{
+                    flex: 1,
+                    minHeight: '100vh',
+                    bgcolor: 'background.default'
+                  }}
+                >
                   <Dashboard />
                 </Box>
               </Box>
             </ProtectedRoute>
           } />
-          <Route path="/dashboard" element={<Navigate to="/" replace />} />
           <Route path="/income" element={
             <ProtectedRoute>
               <Box sx={{ display: 'flex' }}>
@@ -186,23 +202,8 @@ const MainApp = () => {
               </Box>
             </ProtectedRoute>
           } />
-          <Route path="/ontrack" element={
-            <ProtectedRoute>
-              <Box sx={{ display: 'flex' }}>
-                <Sidebar />
-                <Box
-                  component="main"
-                  sx={{
-                    flex: 1,
-                    minHeight: '100vh',
-                    bgcolor: 'background.default'
-                  }}
-                >
-                  <OnTrack />
-                </Box>
-              </Box>
-            </ProtectedRoute>
-          } />
+          <Route path="/ontrack" element={<Navigate to="/" replace />} />
+          <Route path="/dashboard" element={<Navigate to="/tracking" replace />} />
           <Route path="/settings" element={
             <ProtectedRoute>
               <Box sx={{ display: 'flex' }}>
