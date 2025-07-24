@@ -115,7 +115,7 @@ const AutoUpdateModal: React.FC<AutoUpdateModalProps> = ({ isOpen, onClose }) =>
             // Fix rate for fortnightly->weekly log
             let logRate = rate;
             let logAccrued = accrued;
-            if (expense.frequency === 'biweekly' && freq === 'weekly') {
+            if (expense.frequency === 'fortnightly' && freq === 'weekly') {
               logRate = expense.amount * 26 / 52;
               if (periods === 2) {
                 logAccrued = expense.amount;
@@ -126,7 +126,7 @@ const AutoUpdateModal: React.FC<AutoUpdateModalProps> = ({ isOpen, onClose }) =>
 
             setUpdateLog((log: string[]) => [
               ...log,
-              `  - ${expense.description}: $${expense.amount.toFixed(2)} (${expense.frequency === 'biweekly' ? 'fortnightly' : expense.frequency}), Rate: $${logRate.toFixed(2)} per ${perLabel} x ${periods} ${periodLabel} = $${logAccrued.toFixed(2)}`
+              `  - ${expense.description}: $${expense.amount.toFixed(2)} (${expense.frequency === 'fortnightly' ? 'fortnightly' : expense.frequency}), Rate: $${logRate.toFixed(2)} per ${perLabel} x ${periods} ${periodLabel} = $${logAccrued.toFixed(2)}`
             ]);
           }
 
@@ -198,7 +198,7 @@ const AutoUpdateModal: React.FC<AutoUpdateModalProps> = ({ isOpen, onClose }) =>
     const labels: Record<Frequency, string> = {
       daily: 'Daily',
       weekly: 'Weekly',
-      biweekly: 'Fortnightly',
+      fortnightly: 'Fortnightly',
       monthly: 'Monthly',
       quarterly: 'Quarterly',
       annually: 'Annually'
@@ -229,7 +229,7 @@ const AutoUpdateModal: React.FC<AutoUpdateModalProps> = ({ isOpen, onClose }) =>
         lastScheduled = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (daysSinceLast || 7));
         break;
       }
-      case 'biweekly': {
+      case 'fortnightly': {
         const daysSinceLast = (today.getDay() - dayOfWeek + 14) % 14;
         lastScheduled = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (daysSinceLast || 14));
         break;

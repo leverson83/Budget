@@ -151,8 +151,7 @@ const BalanceForecast = () => {
     switch (frequency) {
       case 'daily':
         return today;
-      case 'weekly':
-      case 'biweekly': {
+      case 'fortnightly': {
         // Find next occurrence of the selected day of week
         const targetDay = day % 7;
         const result = new Date(today);
@@ -185,8 +184,7 @@ const BalanceForecast = () => {
     switch (frequency) {
       case 'daily':
         return 1;
-      case 'weekly':
-      case 'biweekly':
+      case 'fortnightly':
         return date.getDay();
       case 'monthly':
       case 'quarterly':
@@ -904,7 +902,7 @@ const BalanceForecast = () => {
                  switch (modalDisbursementSettings.disbursementFrequency) {
                    case 'daily':
                      return 'Each account receives its allocated expenses daily.';
-                   case 'biweekly':
+                   case 'fortnightly':
                      return 'Each account receives its allocated expenses every second week on the selected day.';
                    case 'monthly':
                      return 'Each account receives its allocated expenses on the selected day of the month.';

@@ -517,7 +517,7 @@ const Planning = () => {
       case "weekly":
         annualAmount *= 52;
         break;
-      case "biweekly":
+      case "fortnightly":
         annualAmount *= 26;
         break;
       case "monthly":
@@ -536,7 +536,7 @@ const Planning = () => {
         return annualAmount / 365;
       case "weekly":
         return annualAmount / 52;
-      case "biweekly":
+      case "fortnightly":
         return annualAmount / 26;
       case "monthly":
         return annualAmount / 12;

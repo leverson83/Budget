@@ -106,7 +106,7 @@ const calculateTotalForFrequency = (items: (IncomeEntry | ExpenseEntry)[], targe
     switch (itemFrequency) {
       case 'daily': annualAmount = amount * 365; break;
       case 'weekly': annualAmount = amount * 52; break;
-      case 'biweekly': annualAmount = amount * 26; break;
+      case 'fortnightly': annualAmount = amount * 26; break;
       case 'monthly': annualAmount = amount * 12; break;
       case 'quarterly': annualAmount = amount * 4; break;
       case 'annually': annualAmount = amount; break;
@@ -114,7 +114,7 @@ const calculateTotalForFrequency = (items: (IncomeEntry | ExpenseEntry)[], targe
     switch (targetFrequency) {
       case 'daily': return total + (annualAmount / 365);
       case 'weekly': return total + (annualAmount / 52);
-      case 'biweekly': return total + (annualAmount / 26);
+      case 'fortnightly': return total + (annualAmount / 26);
       case 'monthly': return total + (annualAmount / 12);
       case 'quarterly': return total + (annualAmount / 4);
       case 'annually': return total + annualAmount;

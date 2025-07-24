@@ -314,7 +314,7 @@ const Income = () => {
       case "weekly":
         monthlyAmount = monthlyAmount * 4;
         break;
-      case "biweekly":
+      case "fortnightly":
         monthlyAmount = monthlyAmount * 2;
         break;
       case "quarterly":
@@ -331,7 +331,7 @@ const Income = () => {
         return monthlyAmount / 30;
       case "weekly":
         return monthlyAmount / 4;
-      case "biweekly":
+      case "fortnightly":
         return monthlyAmount / 2;
       case "monthly":
         return monthlyAmount;
