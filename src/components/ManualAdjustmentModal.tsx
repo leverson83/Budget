@@ -124,7 +124,7 @@ const ManualAdjustmentModal: React.FC<ManualAdjustmentModalProps> = ({ open, onC
           <DatePicker
             label="Date"
             value={date}
-            onChange={setDate}
+            onChange={(value) => setDate(value as Dayjs | null)}
             format="YYYY-MM-DD"
             sx={{ width: '100%' }}
           />

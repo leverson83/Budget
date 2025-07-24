@@ -517,7 +517,7 @@ const Expenses = () => {
       case "weekly":
         annualAmount *= 52;
         break;
-      case "biweekly":
+      case "fortnightly":
         annualAmount *= 26;
         break;
       case "monthly":
@@ -537,7 +537,7 @@ const Expenses = () => {
         return annualAmount / 365;
       case "weekly":
         return annualAmount / 52;
-      case "biweekly":
+      case "fortnightly":
         return annualAmount / 26;
       case "monthly":
         return annualAmount / 12;
@@ -622,13 +622,16 @@ const Expenses = () => {
         case "weekly":
           nextDue = addWeeks(nextDue, 1);
           break;
+        case "fortnightly":
+          nextDue = addDays(nextDue, 14);
+          break;
         case "monthly":
           nextDue = addMonths(nextDue, 1);
           break;
         case "quarterly":
           nextDue = addMonths(nextDue, 3);
           break;
-        case "yearly":
+        case "annually":
           nextDue = addYears(nextDue, 1);
           break;
         default:
@@ -791,7 +794,7 @@ const Expenses = () => {
         switch (a.frequency) {
           case 'daily': return v * 365;
           case 'weekly': return v * 52;
-          case 'biweekly': return v * 26;
+          case 'fortnightly': return v * 26;
           case 'monthly': return v * 12;
           case 'quarterly': return v * 4;
           case 'annually': return v;
@@ -803,7 +806,7 @@ const Expenses = () => {
     switch (calculatedForm.frequency) {
       case 'daily': finalAmount = avgAnnual / 365; break;
       case 'weekly': finalAmount = avgAnnual / 52; break;
-      case 'biweekly': finalAmount = avgAnnual / 26; break;
+      case 'fortnightly': finalAmount = avgAnnual / 26; break;
       case 'monthly': finalAmount = avgAnnual / 12; break;
       case 'quarterly': finalAmount = avgAnnual / 4; break;
       case 'annually': finalAmount = avgAnnual; break;
@@ -846,7 +849,7 @@ const Expenses = () => {
     setOpenCalc(false);
   };
 
-  const handleManualAdjustmentSave = async (data) => {
+  const handleManualAdjustmentSave = async (data: any) => {
     try {
       const response = await apiCall('/manual-adjustments', {
         method: 'POST',

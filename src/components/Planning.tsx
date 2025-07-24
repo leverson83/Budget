@@ -107,7 +107,7 @@ const Planning = () => {
         return amount;
       case 'weekly':
         return amount / 7;
-      case 'biweekly':
+      case 'fortnightly':
         return amount / 14;
       case 'monthly':
         return amount / 30.44; // Average days in a month
@@ -149,7 +149,7 @@ const Planning = () => {
         lastScheduled = subDays(today, daysSinceLast || 7);
         break;
       }
-      case 'biweekly': {
+      case 'fortnightly': {
         // Find the most recent occurrence of the same day of week, 2 weeks apart
         const daysSinceLast = (today.getDay() - dayOfWeek + 14) % 14;
         lastScheduled = subDays(today, daysSinceLast || 14);
@@ -193,7 +193,7 @@ const Planning = () => {
       case 'weekly':
         nextScheduled = addDays(lastScheduled, 7);
         break;
-      case 'biweekly':
+      case 'fortnightly':
         nextScheduled = addDays(lastScheduled, 14);
         break;
       case 'monthly':
