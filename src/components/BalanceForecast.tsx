@@ -40,7 +40,7 @@ import IconButton from '@mui/material/IconButton';
 import Button from '@mui/material/Button';
 import { useFrequency } from '../contexts/FrequencyContext';
 import InfoIcon from '@mui/icons-material/Info';
-import { linearRegression, linearRegressionLine } from 'simple-statistics';
+
 
 // Format currency function
 const formatCurrency = (amount: number, noCents: boolean = false): string => {
@@ -106,11 +106,11 @@ const BalanceForecast = () => {
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [nextCycleDate, setNextCycleDate] = useState<Date | null>(null);
   const [timePeriod, setTimePeriod] = useState<TimePeriodSettings>({
-    pastMonths: 1,
+    pastMonths: 0,
     futureMonths: 3
   });
   const [modalTimePeriod, setModalTimePeriod] = useState<TimePeriodSettings>({
-    pastMonths: 1,
+    pastMonths: 0,
     futureMonths: 3
   });
   const [chartKey, setChartKey] = useState(0);
@@ -122,6 +122,13 @@ const BalanceForecast = () => {
   const [debugInfo, setDebugInfo] = useState<string>('');
   const [debugLoading, setDebugLoading] = useState(false);
   const [debugError, setDebugError] = useState<string | null>(null);
+  const [manualAdjustments, setManualAdjustments] = useState<any[]>([]);
+  // Add state for custom marker date
+  const [modalMarkerDate, setModalMarkerDate] = useState<Date | null>(null);
+  const [markerDate, setMarkerDate] = useState<Date | null>(null);
+  // Add modal state for disbursement settings
+  const [modalDisbursementSettings, setModalDisbursementSettings] = useState<DisbursementSettings>(disbursementSettings);
+  const [modalNextCycleDate, setModalNextCycleDate] = useState<Date | null>(null);
 
   // Fetch disbursement settings
   const fetchDisbursementSettings = async () => {
@@ -225,7 +232,11 @@ const BalanceForecast = () => {
     setLoading(true);
     setError(null);
     
-    const periodToUse = customTimePeriod || timePeriod;
+    // Always use pastMonths=0, only futureMonths is user-selected
+    const periodToUse = {
+      pastMonths: 0,
+      futureMonths: (customTimePeriod ? customTimePeriod.futureMonths : timePeriod.futureMonths)
+    };
     
     console.log('Fetching forecast data with period:', periodToUse, 'and frequency:', disbursementSettings.disbursementFrequency, 'and day:', disbursementSettings.disbursementDay);
     
@@ -294,9 +305,25 @@ const BalanceForecast = () => {
     setDebugModalOpen(false);
   };
 
+  // Fetch manual adjustments
+  const fetchManualAdjustments = async () => {
+    try {
+      const response = await apiCall('/manual-adjustments');
+      if (response.ok) {
+        setManualAdjustments(await response.json());
+      }
+    } catch (err) {
+      // ignore
+    }
+  };
+
   // Load saved settings on mount
   useEffect(() => {
     loadSavedSettings();
+  }, []);
+
+  useEffect(() => {
+    fetchManualAdjustments();
   }, []);
 
   // Add effect to fetch forecast data after settingsLoaded and disbursementSettings are set
@@ -400,18 +427,14 @@ const BalanceForecast = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [disbursementSettings.disbursementFrequency, disbursementSettings.disbursementDay]);
 
-  const handleDisbursementFrequencyChange = (frequency: Frequency) => {
-    const newSettings = { ...disbursementSettings, disbursementFrequency: frequency };
-    // Reset date to today for new frequency
-    const today = new Date();
-    setNextCycleDate(today);
-    updateDisbursementSettings(newSettings, today);
+  // Modal field handlers for frequency and date
+  const handleModalDisbursementFrequencyChange = (frequency: Frequency) => {
+    setModalDisbursementSettings({ ...modalDisbursementSettings, disbursementFrequency: frequency });
+    setSettingsChanged(true);
   };
-
-  // New: handle date picker change
-  const handleNextCycleDateChange = (date: Date | null) => {
-    setNextCycleDate(date);
-    updateDisbursementSettings(disbursementSettings, date);
+  const handleModalNextCycleDateChange = (date: Date | null) => {
+    setModalNextCycleDate(date);
+    setSettingsChanged(true);
   };
 
   // Handle account toggle from graph legend (immediate save)
@@ -467,7 +490,12 @@ const BalanceForecast = () => {
     console.log('💾 Saving account settings:', Array.from(modalSelectedAccounts));
     console.log('🌐 Saving settings to:', `${window.location.origin}/api/forecast-settings`);
 
-    // Save settings to backend first
+    // Compute disbursementDay from modalNextCycleDate and modalDisbursementSettings
+    let disbursementDay = modalDisbursementSettings.disbursementDay;
+    if (modalNextCycleDate) {
+      disbursementDay = getDisbursementDayFromDate(modalDisbursementSettings.disbursementFrequency, modalNextCycleDate);
+    }
+    // Save settings to backend
     try {
       const response = await apiCall('/forecast-settings', {
         method: 'POST',
@@ -477,12 +505,14 @@ const BalanceForecast = () => {
           warningLine: modalWarningLine,
           pastMonths: modalTimePeriod.pastMonths,
           futureMonths: modalTimePeriod.futureMonths,
-          frequency: disbursementSettings.disbursementFrequency,
-          disbursementDay: disbursementSettings.disbursementDay
+          frequency: modalDisbursementSettings.disbursementFrequency,
+          disbursementDay
         })
       });
       
       if (response.ok) {
+        setDisbursementSettings({ ...modalDisbursementSettings, disbursementDay });
+        setNextCycleDate(modalNextCycleDate);
         console.log('✅ Settings saved successfully to backend');
       } else {
         console.error('❌ Failed to save settings to backend:', response.status);
@@ -495,6 +525,7 @@ const BalanceForecast = () => {
     setSelectedAccounts(new Set(modalSelectedAccounts));
     setTimePeriod({ ...modalTimePeriod });
     setWarningLine(modalWarningLine);
+    setMarkerDate(modalMarkerDate);
 
     // Only refetch data if time period changed
     const timePeriodChanged = modalTimePeriod.pastMonths !== timePeriod.pastMonths || 
@@ -518,6 +549,9 @@ const BalanceForecast = () => {
     setModalSelectedAccounts(new Set(selectedAccounts));
     setModalTimePeriod(timePeriod);
     setModalWarningLine(warningLine);
+    setModalMarkerDate(markerDate);
+    setModalDisbursementSettings(disbursementSettings);
+    setModalNextCycleDate(nextCycleDate);
     setSettingsChanged(false);
     setSettingsOpen(false);
   };
@@ -528,9 +562,52 @@ const BalanceForecast = () => {
     setModalTimePeriod(timePeriod);
     setModalWarningLine(warningLine);
     // Set the modal's date picker to the current disbursement date
-    setNextCycleDate(getDateFromDisbursement(disbursementSettings.disbursementFrequency, disbursementSettings.disbursementDay));
+    setModalNextCycleDate(getDateFromDisbursement(disbursementSettings.disbursementFrequency, disbursementSettings.disbursementDay));
+    setModalDisbursementSettings(disbursementSettings);
     setSettingsOpen(true);
   };
+
+  // Helper to format date as YYYY-MM-DD (local, no time)
+  function toYMD(date: Date) {
+    const y = date.getFullYear();
+    const m = (date.getMonth() + 1).toString().padStart(2, '0');
+    const d = date.getDate().toString().padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  // Helper to format date as YYYY-MM-DD in UTC
+  function toUTCYMD(date: Date) {
+    const y = date.getUTCFullYear();
+    const m = (date.getUTCMonth() + 1).toString().padStart(2, '0');
+    const d = date.getUTCDate().toString().padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  // Helper to format date as YYYY-MM-DDT00:00:00Z (UTC midnight)
+  function toUTCISOStringYMD(date: Date) {
+    return date ? new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())).toISOString().slice(0, 10) + 'T00:00:00Z' : '';
+  }
+
+  // Helper to format date as DD/MM/YYYY
+  function toDDMMYYYY(date: Date) {
+    const d = date.getDate().toString().padStart(2, '0');
+    const m = (date.getMonth() + 1).toString().padStart(2, '0');
+    const y = date.getFullYear();
+    return `${d}/${m}/${y}`;
+  }
+
+  // Debug logging for marker and forecast dates
+  if (forecastData && forecastData.forecast && forecastData.forecast.length > 0) {
+    const firstDate = forecastData.forecast[0].date;
+    const lastDate = forecastData.forecast[forecastData.forecast.length - 1].date;
+    console.log('Forecast first date:', firstDate, 'as Date:', new Date(firstDate));
+    console.log('Forecast last date:', lastDate, 'as Date:', new Date(lastDate));
+  }
+  if (markerDate) {
+    console.log('Marker date (raw):', markerDate);
+    console.log('Marker date (local YMD):', toYMD(markerDate));
+    console.log('Marker date (UTC YMD):', toUTCYMD(markerDate));
+  }
 
   if (loading) {
     return (
@@ -551,64 +628,88 @@ const BalanceForecast = () => {
   // Always render the chart and settings icon, even if forecastData is missing
   // Prepare chart data
   const filteredAccounts = (forecastData?.accounts || []).filter(account => selectedAccounts.has(account.id));
+  const filteredForecast = (forecastData?.forecast || []).filter(item => new Date(item.date) >= new Date(new Date().toDateString()));
 
+  // Build chart datasets
   const chartData = {
-    labels: forecastData?.forecast.map(item => new Date(item.date)) || [],
+    labels: filteredForecast.map(item => {
+      // Use actual Date objects for Chart.js to avoid timezone issues
+      return new Date(item.date);
+    }) || [],
     datasets: [
       ...filteredAccounts.map((account, index) => {
-          const colors = [
-            '#1976d2', '#dc004e', '#388e3c', '#f57c00', '#7b1fa2', 
-            '#d32f2f', '#388e3c', '#f57c00', '#7b1fa2', '#1976d2'
-          ];
-          const color = colors[index % colors.length];
-          const accountData = forecastData?.forecast.map(item => item.accounts[account.id] || 0) || [];
-          // Prepare data for regression using simple-statistics
-          const regressionData = accountData.map((y, i) => [i, y]);
-          const lr = linearRegression(regressionData);
-          const lrLine = linearRegressionLine(lr);
-          const trendData = accountData.map((_y, i) => lrLine(i));
-          return [
-            {
-              label: account.name,
-              data: accountData,
-              borderColor: color,
-              backgroundColor: color + '20',
-              borderWidth: 2, // Show the lines
-              fill: false,
-              tension: 0.1,
-              pointRadius: 0,
-              pointHoverRadius: 6,
-              pointHoverBackgroundColor: color,
-              pointHoverBorderColor: '#fff',
-              pointHoverBorderWidth: 2,
-              datalabels: {
-                display: false // Hide the data point labels
+        const colors = [
+          '#1976d2', '#dc004e', '#388e3c', '#f57c00', '#7b1fa2', 
+          '#d32f2f', '#388e3c', '#f57c00', '#7b1fa2', '#1976d2'
+        ];
+        const color = colors[index % colors.length];
+        const accountData = filteredForecast.map(item => item.accounts[account.id] || 0);
+        
+        return {
+          label: account.name,
+          data: accountData,
+          borderColor: color,
+          backgroundColor: color + '10',
+          borderWidth: 3,
+          fill: false,
+          tension: 0.1,
+          pointRadius: 0,
+          pointHoverRadius: 6,
+          pointHoverBackgroundColor: color,
+          order: 1,
+          datalabels: {
+            display: false
+          },
+          isTrendLine: false
+        };
+      }),
+      ...filteredAccounts.map((account, index) => {
+        // Manual adjustment markers for this account
+        const accountManuals = manualAdjustments.filter(
+          (adj) => adj.account_id === account.id
+        );
+        // Map to {x: date, y: balance} for each adjustment
+        const points = accountManuals.map((adj) => {
+          // Find the forecasted balance for this account on this date
+          const forecastPoint = filteredForecast.find(f => {
+            // Compare as Date objects
+            const forecastDate = new Date(f.date);
+            const adjDate = new Date(adj.date);
+            return forecastDate.toDateString() === adjDate.toDateString();
+          });
+          return forecastPoint
+            ? {
+                x: new Date(adj.date),
+                y: forecastPoint.accounts[account.id],
+                type: adj.type,
+                amount: adj.amount,
+                description: adj.description
               }
-            },
-            {
-              label: `${account.name} Trend`,
-              data: trendData,
-              borderColor: color,
-              borderWidth: 2,
-              borderDash: [8, 6],
-              fill: false,
-              pointRadius: 0,
-              hoverRadius: 0,
-              borderCapStyle: 'round' as CanvasLineCap,
-              backgroundColor: color + '10',
-              datalabels: {
-                display: false
-              },
-              tension: 0,
-              order: 99,
-              hidden: false,
-              spanGaps: true,
-              // Custom property to identify trend lines
-              isTrendLine: true
-            }
-          ];
-        }).flat()
-      // Removed the Today star marker dataset
+            : null;
+        }).filter(Boolean);
+        if (points.length === 0) return [];
+        return [{
+          type: 'scatter' as const,
+          label: `${account.name} Manual Adjustments`,
+          data: points,
+          showLine: false,
+          pointStyle: (ctx: any) => {
+            const t = ctx.raw?.type;
+            if (t === 'withdrawal') return 'triangle';
+            if (t === 'deposit') return 'triangle';
+            return 'circle';
+          },
+          pointRotation: (ctx: any) => ctx.raw?.type === 'withdrawal' ? 180 : 0,
+          pointBackgroundColor: (ctx: any) => ctx.raw?.type === 'withdrawal' ? '#d32f2f' : '#388e3c',
+          pointBorderColor: (ctx: any) => ctx.raw?.type === 'withdrawal' ? '#d32f2f' : '#388e3c',
+          pointRadius: 8,
+          pointHoverRadius: 10,
+          order: 100,
+          datalabels: { display: false },
+          isManualMarker: true,
+          legend: { display: false }
+        }];
+      }).flat()
     ]
   };
 
@@ -635,10 +736,10 @@ const BalanceForecast = () => {
         labels: {
           usePointStyle: true,
           padding: 20,
-          // Hide trend lines from legend
+          // Hide trend lines and manual markers from legend
           filter: (legendItem: any, data: any) => {
             const dataset = data.datasets[legendItem.datasetIndex];
-            return !dataset.isTrendLine;
+            return !dataset.isTrendLine && !dataset.isManualMarker;
           }
         },
         onClick: (event: any, legendItem: any, legend: any) => {
@@ -660,14 +761,21 @@ const BalanceForecast = () => {
             const dataIndex = context[0].dataIndex;
             const date = forecastData?.forecast[dataIndex]?.date;
             if (date) {
+              // Show as DD/MM/YYYY
               const validDate = new Date(date);
               if (!isNaN(validDate.getTime())) {
-                return validDate.toLocaleDateString();
+                return toDDMMYYYY(validDate);
               }
             }
             return 'Invalid Date';
           },
           label: function(context: any) {
+            if (context.dataset.isManualMarker && context.raw) {
+              const adj = context.raw;
+              const dir = adj.type === 'withdrawal' ? 'Manual Withdrawal' : 'Manual Deposit';
+              return `${dir}: ${formatCurrency(adj.amount)}${adj.description ? ' - ' + adj.description : ''}`;
+            }
+            // fallback to default
             const accountName = context.dataset.label;
             const balance = context.parsed.y;
             return `${accountName}: ${formatCurrency(balance)}`;
@@ -676,18 +784,16 @@ const BalanceForecast = () => {
       },
       annotation: {
         annotations: {
-          ...(todayLabel
+          ...(markerDate
             ? {
-                todayLine: {
+                customMarker: {
                   type: 'line' as const,
-                  xMin: todayLabel,
-                  xMax: todayLabel,
-                  borderColor: '#FFD700',
+                  xMin: new Date(markerDate.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+                  xMax: new Date(markerDate.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+                  borderColor: '#00bcd4',
                   borderWidth: 2,
-                  borderDash: [6, 6],
-                  label: {
-                    display: false
-                  }
+                  borderDash: [4, 4],
+                  label: { display: false }
                 }
               }
             : {}),
@@ -712,12 +818,20 @@ const BalanceForecast = () => {
         time: {
           unit: 'month' as const,
           displayFormats: {
-            month: 'MMM yyyy'
-          }
+            day: 'dd/MM/yyyy',
+            month: 'MM/yyyy',
+            year: 'yyyy'
+          },
+          tooltipFormat: 'dd/MM/yyyy'
         },
         title: {
           display: true,
           text: 'Date'
+        },
+        adapters: {
+          date: {
+            locale: undefined // Use default locale, but we override with displayFormats above
+          }
         }
       },
       y: {
@@ -754,9 +868,9 @@ const BalanceForecast = () => {
              <FormControl fullWidth>
                <InputLabel>Frequency</InputLabel>
                <Select
-                 value={disbursementSettings.disbursementFrequency}
+                 value={modalDisbursementSettings.disbursementFrequency}
                  label="Frequency"
-                 onChange={(e) => handleDisbursementFrequencyChange(e.target.value as Frequency)}
+                 onChange={(e) => handleModalDisbursementFrequencyChange(e.target.value as Frequency)}
                >
                  {frequencies.map((f) => (
                    <MenuItem key={f.value} value={f.value}>
@@ -768,7 +882,7 @@ const BalanceForecast = () => {
              <LocalizationProvider dateAdapter={AdapterDateFns}>
                <DatePicker
                  label="Initial Date"
-                 value={nextCycleDate}
+                 value={modalNextCycleDate}
                  onChange={(value) => {
                    let date: Date | null = null;
                    if (value instanceof Date) {
@@ -776,7 +890,7 @@ const BalanceForecast = () => {
                    } else if (value && typeof value === 'object' && typeof value.toDate === 'function') {
                      date = value.toDate();
                    }
-                   handleNextCycleDateChange(date);
+                   handleModalNextCycleDateChange(date);
                  }}
                  format="EEE d MMMM yyyy"
                  slotProps={{ textField: { fullWidth: true } }}
@@ -785,9 +899,9 @@ const BalanceForecast = () => {
                />
              </LocalizationProvider>
            </Box>
-                        <Typography variant="caption" sx={{ mb: 3, display: 'block', color: 'text.secondary' }}>
+           <Typography variant="caption" sx={{ mb: 3, display: 'block', color: 'text.secondary' }}>
                {(() => {
-                 switch (disbursementSettings.disbursementFrequency) {
+                 switch (modalDisbursementSettings.disbursementFrequency) {
                    case 'daily':
                      return 'Each account receives its allocated expenses daily.';
                    case 'biweekly':
@@ -804,23 +918,11 @@ const BalanceForecast = () => {
                })()}
              </Typography>
 
-           {/* Period to Show */}
+           {/* Period to Show (Future only) */}
            <Typography variant="h6" sx={{ mb: 2 }}>
              Period to Show
            </Typography>
            <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
-             <FormControl fullWidth>
-               <InputLabel>Past</InputLabel>
-               <Select
-                 value={modalTimePeriod.pastMonths}
-                 label="Past"
-                 onChange={(e) => handleModalTimePeriodChange('pastMonths', e.target.value as number)}
-               >
-                 <MenuItem value={1}>1 Month</MenuItem>
-                 <MenuItem value={2}>2 Months</MenuItem>
-                 <MenuItem value={3}>3 Months</MenuItem>
-               </Select>
-             </FormControl>
              <FormControl fullWidth>
                <InputLabel>Future</InputLabel>
                <Select
@@ -839,20 +941,53 @@ const BalanceForecast = () => {
            </Box>
 
 
-           {/* Warning Line */}
-           <Typography variant="h6" sx={{ mb: 2 }}>
-             Warning Line
-           </Typography>
-           <TextField
-             label="Warning Amount"
-             type="number"
-             value={modalWarningLine || ''}
-             onChange={(e) => handleModalWarningLineChange(e.target.value)}
-             fullWidth
-             sx={{ mb: 2 }}
-             inputProps={{ step: '0.01', min: 0 }}
-             helperText="Enter an amount to show a warning line on the graph. Leave empty to hide."
-           />
+           {/* Warning Line and Custom Marker Date */}
+           <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+             <Box sx={{ flex: 1 }}>
+               <Typography variant="h6" sx={{ mb: 2 }}>
+                 Warning Line
+               </Typography>
+               <TextField
+                 label="Warning Amount"
+                 type="number"
+                 value={modalWarningLine || ''}
+                 onChange={(e) => handleModalWarningLineChange(e.target.value)}
+                 fullWidth
+                 inputProps={{ step: '0.01', min: 0 }}
+                 helperText="Show a warning line on the graph"
+               />
+             </Box>
+             <Box sx={{ flex: 1 }}>
+               <Typography variant="h6" sx={{ mb: 2 }}>
+                 Custom Marker Date
+               </Typography>
+               <LocalizationProvider dateAdapter={AdapterDateFns}>
+                 <DatePicker
+                   label="Custom Marker Date"
+                   value={modalMarkerDate}
+                                  onChange={(value) => {
+                 let date: Date | null = null;
+                 if (value instanceof Date) {
+                   date = value;
+                 } else if (value && typeof value === 'object' && typeof value.toDate === 'function') {
+                   date = value.toDate();
+                 }
+                 setModalMarkerDate(date);
+                 setSettingsChanged(true);
+               }}
+                   format="EEE d MMMM yyyy"
+                   slotProps={{ 
+                     textField: { 
+                       fullWidth: true,
+                       helperText: "Add a date marker to the graph"
+                     } 
+                   }}
+                   views={['day']}
+                   disablePast
+                 />
+               </LocalizationProvider>
+             </Box>
+           </Box>
 
            {/* Account Selection */}
            <Typography variant="h6" sx={{ mb: 2 }}>
@@ -948,7 +1083,7 @@ const BalanceForecast = () => {
           ) : (
             <Line 
               key={`chart-${chartKey}-${timePeriod.pastMonths}-${timePeriod.futureMonths}`}
-              data={chartData} 
+              data={chartData as any} 
               options={chartOptions} 
             />
           )}

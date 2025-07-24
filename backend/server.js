@@ -2730,13 +2730,12 @@ nonPrimaryAccounts.forEach(account => {
   }
 });
 appendDebugLog('\n=== End Account Preview ===\n');
-  // Calculate start date (past months)
+  // Calculate start date (today only)
   const startDate = new Date(today);
-  startDate.setMonth(today.getMonth() - pastMonths);
-  
-  // Calculate end date (future months)
+  startDate.setHours(0, 0, 0, 0); // Ensure midnight
   const endDate = new Date(today);
   endDate.setMonth(today.getMonth() + futureMonths);
+  endDate.setHours(0, 0, 0, 0);
   
   // Debug logging
   log('Balance forecast date range:', {
@@ -2771,7 +2770,7 @@ appendDebugLog('\n=== End Account Preview ===\n');
   });
   
   const forecast = [];
-  const currentDate = new Date(startDate);
+  let currentDate = new Date(startDate);
   
   while (currentDate <= endDate) {
     const dateStr = currentDate.toISOString().split('T')[0];
