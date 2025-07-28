@@ -1,26 +1,46 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useEffect, useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import * as d3 from 'd3';
 import type { HierarchyPointNode, HierarchyPointLink } from 'd3';
 
 interface AccountRadialTreeProps {
-  accounts: Array<{
-    id: number;
-    name: string;
-    isPrimary: boolean | number;
-    currentBalance?: number;
-    requiredBalance?: number;
-  }>;
+  accounts: any[];
   perAccountExpenses: Record<number, number>;
   frequencyLabel: string;
   totalIncome: number;
+  style?: React.CSSProperties;
 }
 
-const WIDTH = 700;
-const HEIGHT = 700;
-const RADIUS = 224;
+const AccountRadialTree: React.FC<AccountRadialTreeProps> = ({ accounts, perAccountExpenses, frequencyLabel, totalIncome, style }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dimensions, setDimensions] = useState({ width: 700, height: 700 });
 
-const AccountRadialTree: React.FC<AccountRadialTreeProps> = ({ accounts, perAccountExpenses, frequencyLabel, totalIncome }) => {
+  // Update dimensions when container size changes
+  useEffect(() => {
+    const updateDimensions = () => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const size = Math.min(rect.width, rect.height) * 0.8; // Use 80% of available space
+        setDimensions({ width: size, height: size });
+      }
+    };
+
+    updateDimensions();
+    
+    // Use ResizeObserver for more accurate container size detection
+    const resizeObserver = new ResizeObserver(updateDimensions);
+    if (containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
+    
+    window.addEventListener('resize', updateDimensions);
+    
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateDimensions);
+    };
+  }, []);
+
   // Find primary account
   const primary = accounts.find(a => a.isPrimary || a.isPrimary === 1);
   const nonPrimary = accounts.filter(a => !a.isPrimary && a.isPrimary !== 1);
@@ -43,16 +63,17 @@ const AccountRadialTree: React.FC<AccountRadialTreeProps> = ({ accounts, perAcco
     };
   }, [primary, nonPrimary, perAccountExpenses]);
 
-  // Compute radial tree layout
+  // Compute radial tree layout with dynamic radius
   const nodesAndLinks = useMemo(() => {
     if (!treeData) return { nodes: [], links: [] };
+    const radius = Math.min(dimensions.width, dimensions.height) * 0.35; // Dynamic radius
     const root = d3.hierarchy(treeData);
-    const treeLayout = d3.tree().size([2 * Math.PI, RADIUS]);
+    const treeLayout = d3.tree().size([2 * Math.PI, radius]);
     const treeRoot = treeLayout(root);
     const nodes = treeRoot.descendants();
     const links = treeRoot.links();
-    return { nodes, links };
-  }, [treeData]);
+    return { nodes, links, radius };
+  }, [treeData, dimensions]);
 
   // Color palette for nodes
   const nodeColors = [
@@ -63,13 +84,35 @@ const AccountRadialTree: React.FC<AccountRadialTreeProps> = ({ accounts, perAcco
     return <Typography color="error">No primary account found.</Typography>;
   }
 
+  const { width, height } = dimensions;
+  const radius = nodesAndLinks.radius || 224;
+  const baseSize = Math.min(width, height) * 0.15; // Responsive base size
+
   return (
-    <Box sx={{ width: WIDTH, height: HEIGHT, mx: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-      <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 2, textAlign: 'center' }}>
-        Funds Distribution
-      </Typography>
-      <svg width={WIDTH} height={HEIGHT} style={{ display: 'block', margin: '0 auto', background: 'none' }}>
-        <g transform={`translate(${WIDTH / 2},${HEIGHT / 2})`}>
+    <Box 
+      ref={containerRef}
+      sx={{ 
+        width: '100%', 
+        height: '100%', 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        overflow: 'hidden'
+      }}
+    >
+      <svg
+        width={width}
+        height={height}
+        viewBox={`-${width/2} -${height/2} ${width} ${height}`}
+        style={{
+          ...style,
+          maxWidth: '100%',
+          maxHeight: '100%',
+          width: '100%',
+          height: '100%'
+        }}
+      >
+        <g transform={`translate(0,0)`}>
           {/* Links */}
           {nodesAndLinks.links.map((link: HierarchyPointLink<any>, i: number) => {
             const source = [
@@ -99,9 +142,9 @@ const AccountRadialTree: React.FC<AccountRadialTreeProps> = ({ accounts, perAcco
               Math.sin(node.x - Math.PI / 2) * node.y,
             ];
             const isRoot = node.depth === 0;
-            // Set node size based on primary/non-primary
-            const nodeW = isRoot ? 120 : 120;
-            const nodeH = isRoot ? 80 : 60;
+            // Set node size based on primary/non-primary and container size
+            const nodeW = isRoot ? baseSize * 1.5 : baseSize * 1.2;
+            const nodeH = isRoot ? baseSize : baseSize * 0.8;
             let percent = '';
             let amount = '';
             if (isRoot) {
@@ -133,9 +176,9 @@ const AccountRadialTree: React.FC<AccountRadialTreeProps> = ({ accounts, perAcco
                 {!isRoot && (() => {
                   const percent = typeof node.data.expense === 'number' && totalExpenses > 0 ? `${((node.data.expense / totalExpenses) * 100).toFixed(1)}%` : '';
                   if (!percent) return null;
-                  const badgeW = 38, badgeH = 22;
-                  const badgeX = nodeW / 2 - badgeW / 2 - 4;
-                  const badgeY = -nodeH / 2 - badgeH / 2 + 2 - nodeH * 0.1;
+                  const badgeW = baseSize * 0.4, badgeH = baseSize * 0.25; // Increased size
+                  const badgeX = nodeW / 2 - badgeW / 2 - 8; // More padding from edge
+                  const badgeY = -nodeH / 2 - badgeH / 2 - 4 - nodeH * 0.15; // More padding from top
                   return (
                     <g>
                       <rect
@@ -154,7 +197,7 @@ const AccountRadialTree: React.FC<AccountRadialTreeProps> = ({ accounts, perAcco
                         x={badgeX + badgeW / 2}
                         y={badgeY + badgeH / 2 + 1}
                         textAnchor="middle"
-                        fontSize={12}
+                        fontSize={Math.max(10, baseSize * 0.08)}
                         fontWeight="bold"
                         fill="#222"
                         dominantBaseline="middle"
@@ -169,9 +212,9 @@ const AccountRadialTree: React.FC<AccountRadialTreeProps> = ({ accounts, perAcco
                   <>
                     <text
                       x={0}
-                      y={-nodeH / 2 + 18}
+                      y={-nodeH / 2 + baseSize * 0.2}
                       textAnchor="middle"
-                      fontSize={13}
+                      fontSize={Math.max(10, baseSize * 0.1)}
                       fill="#e0e0e0"
                       fontWeight="normal"
                       dominantBaseline="middle"
@@ -180,9 +223,9 @@ const AccountRadialTree: React.FC<AccountRadialTreeProps> = ({ accounts, perAcco
                     </text>
                     <text
                       x={0}
-                      y={-nodeH / 2 + 36}
+                      y={-nodeH / 2 + baseSize * 0.4}
                       textAnchor="middle"
-                      fontSize={20}
+                      fontSize={Math.max(14, baseSize * 0.15)}
                       fontWeight="bold"
                       fill="#fff"
                       dominantBaseline="middle"
@@ -197,9 +240,9 @@ const AccountRadialTree: React.FC<AccountRadialTreeProps> = ({ accounts, perAcco
                         <>
                           <text
                             x={0}
-                            y={-nodeH / 2 + 54}
+                            y={-nodeH / 2 + baseSize * 0.6}
                             textAnchor="middle"
-                            fontSize={11}
+                            fontSize={Math.max(8, baseSize * 0.08)}
                             fill="#e0e0e0"
                             fontWeight="normal"
                             dominantBaseline="middle"
@@ -208,9 +251,9 @@ const AccountRadialTree: React.FC<AccountRadialTreeProps> = ({ accounts, perAcco
                           </text>
                           <text
                             x={0}
-                            y={-nodeH / 2 + 68}
+                            y={-nodeH / 2 + baseSize * 0.75}
                             textAnchor="middle"
-                            fontSize={15}
+                            fontSize={Math.max(11, baseSize * 0.12)}
                             fontWeight="bold"
                             fill="#fff"
                             dominantBaseline="middle"
@@ -224,10 +267,10 @@ const AccountRadialTree: React.FC<AccountRadialTreeProps> = ({ accounts, perAcco
                 ) : (
                   <>
                     <text
-                      x={-52}
-                      y={-18}
+                      x={-nodeW / 2 + 8}
+                      y={-nodeH / 2 + baseSize * 0.15}
                       fontWeight="bold"
-                      fontSize={13}
+                      fontSize={Math.max(10, baseSize * 0.1)}
                       fill="#fff"
                       dominantBaseline="middle"
                       textAnchor="start"
@@ -236,8 +279,8 @@ const AccountRadialTree: React.FC<AccountRadialTreeProps> = ({ accounts, perAcco
                     </text>
                     <text
                       x={0}
-                      y={6}
-                      fontSize={16}
+                      y={nodeH / 2 - baseSize * 0.15}
+                      fontSize={Math.max(12, baseSize * 0.12)}
                       fontWeight="bold"
                       fill="#e0e0e0"
                       dominantBaseline="middle"
