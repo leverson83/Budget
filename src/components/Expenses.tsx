@@ -33,10 +33,13 @@ import {
   ListItemText,
   Checkbox,
   Grid,
-  Menu
+  Menu,
+  Tabs,
+  Tab,
+  Divider
 } from "@mui/material";
 import type { SelectChangeEvent } from '@mui/material/Select';
-import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Info as InfoIcon, Calculate as CalculateIcon } from "@mui/icons-material";
+import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Info as InfoIcon, Calculate as CalculateIcon, ContentCopy as CopyIcon, SwapHoriz as SwapIcon } from "@mui/icons-material";
 import { format, addDays, addMonths, addWeeks, addYears, isAfter, isBefore } from "date-fns";
 import { API_URL, frequencies, type Frequency } from "../config";
 import { useFrequency } from '../contexts/FrequencyContext';
@@ -59,6 +62,24 @@ interface Expense {
   calculatedAmounts?: { value: string; frequency: Frequency }[];
   isCalculated: boolean;
   manualWithdrawalsOnly?: boolean;
+}
+
+interface ExpenseVersion {
+  id: number;
+  expense_id: string;
+  version_name: string;
+  description: string;
+  amount: number;
+  frequency: Frequency;
+  nextDue: string;
+  applyFuzziness: boolean;
+  notes: string;
+  accountId?: number;
+  tags: string[];
+  manualWithdrawalsOnly: boolean;
+  is_active: boolean;
+  created_at: string;
+  accountName?: string;
 }
 
 interface Account {
@@ -151,6 +172,44 @@ const Expenses = () => {
   const [hiddenExpenses, setHiddenExpenses] = useState<{[key: string]: boolean}>({});
   const [manualAdjustmentOpen, setManualAdjustmentOpen] = useState(false);
   const [manualAdjustmentAccounts, setManualAdjustmentAccounts] = useState<Account[]>([]);
+  const [versions, setVersions] = useState<ExpenseVersion[]>([]);
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
+  const [versionFormData, setVersionFormData] = useState<ExpenseFormData>({
+    description: "",
+    amount: "",
+    frequency: "monthly",
+    startDate: format(new Date(), "yyyy-MM-dd"),
+    endDate: "",
+    accountId: '',
+    notes: "",
+    tags: [],
+    manualWithdrawalsOnly: false,
+  });
+  const [editingVersion, setEditingVersion] = useState<ExpenseVersion | null>(null);
+  const [selectedVersionTab, setSelectedVersionTab] = useState<number>(0); // 0 = main expense, 1+ = versions
+  const [originalExpenseData, setOriginalExpenseData] = useState<ExpenseFormData | null>(null);
+
+  // Helper function to get the next version number
+  const getNextVersionNumber = () => {
+    const versionNumbers = versions
+      .map(v => {
+        const match = v.version_name.match(/v(\d+)/);
+        return match ? parseInt(match[1]) : 0;
+      })
+      .filter(num => num > 0);
+    return versionNumbers.length > 0 ? Math.max(...versionNumbers) + 1 : 2;
+  };
+
+  // Helper function to sort versions by version number
+  const sortVersionsByNumber = (versionsList: ExpenseVersion[]) => {
+    return versionsList.sort((a, b) => {
+      const aMatch = a.version_name.match(/v(\d+)/);
+      const bMatch = b.version_name.match(/v(\d+)/);
+      const aNum = aMatch ? parseInt(aMatch[1]) : 0;
+      const bNum = bMatch ? parseInt(bMatch[1]) : 0;
+      return aNum - bNum;
+    });
+  };
 
   type SortField = keyof Expense | 'amountPerFrequency';
 
@@ -205,7 +264,7 @@ const Expenses = () => {
         manualWithdrawalsOnly: manualWithdrawalsOnly || false,
         };
       });
-      setExpenses(processedExpenses);
+              setExpenses(processedExpenses);
 
       // Fetch hidden expenses status
       const hiddenExpensesResponse = await apiCall('/hidden-expenses');
@@ -446,19 +505,49 @@ const Expenses = () => {
   };
 
   const handleOpen = (expense?: Expense) => {
-    if (expense) {
-      console.log('Opening expense for editing:', expense);
-      setEditingExpense(expense);
-      setFormData({
-        description: expense.description,
-        amount: expense.amount.toString(),
-        frequency: expense.frequency,
-        startDate: format(new Date(expense.nextDue), "yyyy-MM-dd"),
-        endDate: "",
-        accountId: expense.accountId || '',
-        notes: expense.notes || "",
-        tags: expense.tags || [],
-        manualWithdrawalsOnly: expense.manualWithdrawalsOnly || false,
+          if (expense) {
+        console.log('Opening expense for editing:', expense);
+        setEditingExpense(expense);
+        
+        // Create the original expense data for the main form
+        const originalData = {
+          description: expense.description,
+          amount: expense.amount.toString(),
+          frequency: expense.frequency,
+          startDate: format(new Date(expense.nextDue), "yyyy-MM-dd"),
+          endDate: "",
+          accountId: expense.accountId || '',
+          notes: expense.notes || "",
+          tags: expense.tags || [],
+          manualWithdrawalsOnly: expense.manualWithdrawalsOnly || false,
+        } as ExpenseFormData;
+        
+        // Store the original data and set it as the initial form data
+        setOriginalExpenseData(originalData);
+        setFormData(originalData);
+      
+      // Fetch versions for this expense and set the active tab
+      fetchVersions(expense.id).then(async (versionsData) => {
+        // Ensure Version 1 exists for this expense
+        await ensureVersion1Exists(expense.id);
+        
+        // After fetching versions, determine which tab should be active
+        // If there are versions and one is active, select that tab
+        // Otherwise, default to Version 1 (tab 0)
+        if (versionsData && versionsData.length > 0) {
+          const activeVersion = versionsData.find((v: ExpenseVersion) => v.is_active);
+          if (activeVersion) {
+            const activeIndex = versionsData.findIndex((v: ExpenseVersion) => v.id === activeVersion.id);
+            setSelectedVersionTab(activeIndex + 1);
+            handleLoadVersion(activeVersion);
+          } else {
+            setSelectedVersionTab(0);
+            setEditingVersion(null);
+          }
+        } else {
+          setSelectedVersionTab(0);
+          setEditingVersion(null);
+        }
       });
     } else {
       setEditingExpense(null);
@@ -473,6 +562,9 @@ const Expenses = () => {
         tags: [],
         manualWithdrawalsOnly: false,
       });
+      setVersions([]);
+      setSelectedVersionTab(0);
+      setEditingVersion(null);
     }
     setOpen(true);
   };
@@ -491,6 +583,10 @@ const Expenses = () => {
       tags: [],
       manualWithdrawalsOnly: false,
     });
+    setVersions([]);
+    setSelectedVersionTab(0);
+    setEditingVersion(null);
+    setOriginalExpenseData(null);
   };
 
   const handleDeleteClick = (id: string) => {
@@ -864,6 +960,196 @@ const Expenses = () => {
     }
   };
 
+  // Fetch versions for a specific expense
+  const fetchVersions = async (expenseId: string) => {
+    try {
+      const response = await apiCall(`/expenses/${expenseId}/versions`);
+      if (response.ok) {
+        const versionsData = await response.json();
+        setVersions(versionsData);
+        if (versionsData.length > 0) {
+          setSelectedVersion(versionsData[0].id);
+        }
+        return versionsData;
+      }
+      return [];
+    } catch (err) {
+      console.error('Error fetching versions:', err);
+      return [];
+    }
+  };
+
+
+
+  // Activate version
+  const handleActivateVersion = async (versionId: number) => {
+    if (!editingExpense) return;
+
+    try {
+      // If we're on a version tab, update the version data first with current form data
+      if (selectedVersionTab > 0 && editingVersion) {
+        const updateData = {
+          description: versionFormData.description,
+          amount: parseFloat(versionFormData.amount),
+          frequency: versionFormData.frequency,
+          nextDue: versionFormData.startDate,
+          notes: versionFormData.notes,
+          accountId: versionFormData.accountId === '' ? null : versionFormData.accountId,
+          tags: versionFormData.tags || [],
+          manualWithdrawalsOnly: versionFormData.manualWithdrawalsOnly
+        };
+
+        const updateResponse = await apiCall(`/expenses/${editingExpense.id}/versions/${versionId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updateData),
+        });
+
+        if (!updateResponse.ok) {
+          const errorData = await updateResponse.json();
+          throw new Error(errorData.error || 'Failed to update version');
+        }
+      }
+
+      // If we're on Current (main expense), we need to activate it
+      if (selectedVersionTab === 0) {
+        // Find the v1 entry and activate it
+        const version1 = versions.find(v => v.version_name === 'v1');
+        if (version1) {
+          const response = await apiCall(`/expenses/${editingExpense.id}/versions/${version1.id}/activate`, {
+            method: 'POST',
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to activate version');
+          }
+
+          setSuccessMessage("Version activated successfully");
+          setShowSuccess(true);
+          fetchExpenses();
+          fetchVersions(editingExpense.id);
+          handleClose();
+          return;
+        }
+      }
+
+      const response = await apiCall(`/expenses/${editingExpense.id}/versions/${versionId}/activate`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to activate version');
+      }
+
+      setSuccessMessage("Version activated successfully");
+      setShowSuccess(true);
+      fetchExpenses();
+      fetchVersions(editingExpense.id);
+      
+      // Close the modal after activating the version
+      handleClose();
+    } catch (error) {
+      console.error('Error activating version:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to activate version');
+      setShowError(true);
+    }
+  };
+
+  // Delete version
+  const handleDeleteVersion = async (versionId: number) => {
+    if (!editingExpense) return;
+
+    try {
+      const response = await apiCall(`/expenses/${editingExpense.id}/versions/${versionId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete version');
+      }
+
+      setSuccessMessage("Version deleted successfully");
+      setShowSuccess(true);
+      fetchVersions(editingExpense.id);
+    } catch (error) {
+      console.error('Error deleting version:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to delete version');
+      setShowError(true);
+    }
+  };
+
+  // Load version data into form
+  const handleLoadVersion = (version: ExpenseVersion) => {
+    setVersionFormData({
+      description: version.description,
+      amount: version.amount.toString(),
+      frequency: version.frequency,
+      startDate: format(new Date(version.nextDue), "yyyy-MM-dd"),
+      endDate: "",
+      accountId: version.accountId || '',
+      notes: version.notes || "",
+      tags: version.tags || [],
+      manualWithdrawalsOnly: version.manualWithdrawalsOnly || false,
+    });
+    setEditingVersion(version);
+    // Find the tab index for this version in the sorted list
+    const sortedVersions = sortVersionsByNumber(versions);
+    const versionIndex = sortedVersions.findIndex(v => v.id === version.id);
+    if (versionIndex !== -1) {
+      setSelectedVersionTab(versionIndex + 1);
+    }
+  };
+
+  // Handle clicking on Version 1 tab to restore original data
+  const handleVersion1Click = () => {
+    if (originalExpenseData) {
+      setFormData(originalExpenseData);
+    }
+    setEditingVersion(null);
+  };
+
+  // Create Version 1 for new expenses if it doesn't exist
+  const ensureVersion1Exists = async (expenseId: string) => {
+    try {
+      const response = await apiCall(`/expenses/${expenseId}/versions`);
+      if (response.ok) {
+        const versions = await response.json();
+        // If no versions exist, create v1 with the original expense data
+        if (versions.length === 0 && originalExpenseData) {
+          const versionData = {
+            version_name: 'v1',
+            description: originalExpenseData.description,
+            amount: parseFloat(originalExpenseData.amount),
+            frequency: originalExpenseData.frequency,
+            nextDue: originalExpenseData.startDate,
+            notes: originalExpenseData.notes,
+            accountId: originalExpenseData.accountId === '' ? null : originalExpenseData.accountId,
+            tags: originalExpenseData.tags || [],
+            manualWithdrawalsOnly: originalExpenseData.manualWithdrawalsOnly
+          };
+
+          const createResponse = await apiCall(`/expenses/${expenseId}/versions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(versionData),
+          });
+
+          if (createResponse.ok) {
+            // Refresh versions list
+            await fetchVersions(expenseId);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error ensuring Version 1 exists:', error);
+    }
+  };
+
+
+
   if (loading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
@@ -1123,16 +1409,138 @@ const Expenses = () => {
           <DialogTitle>
             {editingExpense ? "Edit Expense" : "Add New Expense"}
           </DialogTitle>
+          
+          {/* Version Tabs - Only show when editing an existing expense */}
+          {editingExpense && (
+            <Box sx={{ borderBottom: 1, borderColor: 'divider', px: 3 }}>
+              <Tabs 
+                value={selectedVersionTab} 
+                onChange={(e, newValue) => setSelectedVersionTab(newValue)}
+                variant="scrollable"
+                scrollButtons="auto"
+              >
+                <Tab 
+                  label="Current" 
+                  value={0} 
+                  onClick={handleVersion1Click}
+                />
+                {sortVersionsByNumber(versions)
+                  .map((version, index) => (
+                    <Tab 
+                      key={version.id} 
+                      label={version.version_name} 
+                      value={index + 1}
+                      onClick={() => handleLoadVersion(version)}
+                    />
+                  ))}
+                <Tab 
+                  label="+" 
+                  value={versions.length + 1}
+                  onClick={async () => {
+                                      // Automatically create the next version when plus is clicked
+                  const nextVersionNumber = getNextVersionNumber();
+                  const versionName = `v${nextVersionNumber}`;
+                  console.log(`Creating new version: ${versionName} (current versions: ${versions.map(v => v.version_name).join(', ')})`);
+                    
+                    // If this is the first version being created, we need to create v1 first
+                    if (versions.length === 0) {
+                      // Create v1 with the original expense data
+                      const v1Data = {
+                        version_name: 'v1',
+                        description: originalExpenseData?.description || formData.description,
+                        amount: parseFloat(originalExpenseData?.amount || formData.amount),
+                        frequency: originalExpenseData?.frequency || formData.frequency,
+                        nextDue: originalExpenseData?.startDate || formData.startDate,
+                        notes: originalExpenseData?.notes || formData.notes,
+                        accountId: originalExpenseData?.accountId === '' ? null : (originalExpenseData?.accountId || formData.accountId),
+                        tags: originalExpenseData?.tags || formData.tags || [],
+                        manualWithdrawalsOnly: originalExpenseData?.manualWithdrawalsOnly || formData.manualWithdrawalsOnly
+                      };
+
+                      const v1Response = await apiCall(`/expenses/${editingExpense!.id}/versions`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(v1Data),
+                      });
+
+                      if (!v1Response.ok) {
+                        const errorData = await v1Response.json();
+                        throw new Error(errorData.error || 'Failed to create v1');
+                      }
+
+                      console.log('Created v1 with original data');
+                    }
+
+                    const requestData = {
+                      version_name: versionName,
+                      description: formData.description,
+                      amount: parseFloat(formData.amount),
+                      frequency: formData.frequency,
+                      nextDue: formData.startDate,
+                      notes: formData.notes,
+                      accountId: formData.accountId === '' ? null : formData.accountId,
+                      tags: formData.tags || [],
+                      manualWithdrawalsOnly: formData.manualWithdrawalsOnly
+                    };
+
+                    try {
+                      const response = await apiCall(`/expenses/${editingExpense!.id}/versions`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(requestData),
+                      });
+
+                      if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || 'Failed to create version');
+                      }
+
+                      // Fetch the updated versions list
+                      await fetchVersions(editingExpense!.id);
+                      
+                      // Find the newly created version and switch to its tab
+                      const versionsResponse = await apiCall(`/expenses/${editingExpense!.id}/versions`);
+                      if (versionsResponse.ok) {
+                        const updatedVersions = await versionsResponse.json();
+                        const newVersion = updatedVersions.find((v: any) => v.version_name === versionName);
+                        if (newVersion) {
+                          // Switch to the new version's tab
+                          const sortedVersions = sortVersionsByNumber(updatedVersions);
+                          const newVersionIndex = sortedVersions.findIndex((v: any) => v.id === newVersion.id);
+                          if (newVersionIndex !== -1) {
+                            setSelectedVersionTab(newVersionIndex + 1);
+                            handleLoadVersion(newVersion);
+                          }
+                        }
+                      }
+
+                      setSuccessMessage("Version created successfully");
+                      setShowSuccess(true);
+                    } catch (error) {
+                      console.error('Error creating version:', error);
+                      setErrorMessage(error instanceof Error ? error.message : 'Failed to create version');
+                      setShowError(true);
+                    }
+                  }}
+                />
+              </Tabs>
+            </Box>
+          )}
+          
           <DialogContent>
             <Box display="flex" flexDirection="column" gap={2} mt={1}>
-              <TextField
-                label="Description"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                required
-                fullWidth
-                InputLabelProps={{ shrink: true }}
-              />
+              {/* Show different form data based on selected tab */}
+              {selectedVersionTab === 0 ? (
+                // Version 1 (main expense) form
+                <>
+                  <TextField
+                    label="Description"
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    required
+                    fullWidth
+                    InputLabelProps={{ shrink: true }}
+                  />
               <TextField
                 label="Amount"
                 type="number"
@@ -1194,21 +1602,26 @@ const Expenses = () => {
                     setFormData({ ...formData, tags: newValue });
                   }}
                   renderTags={(value, getTagProps) =>
-                    value.map((option, index) => (
-                      <Chip
-                        label={option}
-                        size="small"
-                        {...getTagProps({ index })}
-                        sx={{
-                          backgroundColor: getTagColor(option),
-                          color: '#ffffff',
-                          '&:hover': {
+                    value.map((option, index) => {
+                      const tagProps = getTagProps({ index });
+                      const { key, ...otherProps } = tagProps;
+                      return (
+                        <Chip
+                          key={key}
+                          label={option}
+                          size="small"
+                          {...otherProps}
+                          sx={{
                             backgroundColor: getTagColor(option),
-                            opacity: 0.8
-                          }
-                        }}
-                      />
-                    ))
+                            color: '#ffffff',
+                            '&:hover': {
+                              backgroundColor: getTagColor(option),
+                              opacity: 0.8
+                            }
+                          }}
+                        />
+                      );
+                    })
                   }
                   renderInput={(params) => (
                     <TextField
@@ -1236,16 +1649,175 @@ const Expenses = () => {
                   color="primary"
                 />
                 <Typography variant="body2" color="text.secondary">
-                  Manual withdrawals only (long-term savings - no automatic withdrawals on due dates)
+                  Long-term savings
                 </Typography>
               </Box>
+            </>
+          ) : (
+            // Version form
+            <>
+              <TextField
+                label="Description"
+                value={versionFormData.description}
+                onChange={(e) => setVersionFormData({ ...versionFormData, description: e.target.value })}
+                required
+                fullWidth
+                InputLabelProps={{ shrink: true }}
+              />
+              <TextField
+                label="Amount"
+                type="number"
+                value={versionFormData.amount}
+                onChange={(e) => setVersionFormData({ ...versionFormData, amount: e.target.value })}
+                required
+                fullWidth
+                inputProps={{ step: "0.01", min: "0" }}
+                InputLabelProps={{ shrink: true }}
+              />
+              <FormControl fullWidth variant="outlined">
+                <InputLabel id="dialog-frequency-label" shrink>Frequency</InputLabel>
+                <Select
+                  labelId="dialog-frequency-label"
+                  value={versionFormData.frequency}
+                  onChange={(e) => setVersionFormData({ ...versionFormData, frequency: e.target.value })}
+                  label="Frequency"
+                >
+                  {frequencies.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>
+                      {option.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <TextField
+                select
+                label="Account"
+                value={versionFormData.accountId === '' ? '' : String(versionFormData.accountId)}
+                onChange={(e) => setVersionFormData({ ...versionFormData, accountId: e.target.value === '' ? '' : Number(e.target.value) })}
+                fullWidth
+                InputLabelProps={{ shrink: true }}
+              >
+                <MenuItem value="">
+                  <em>None</em>
+                </MenuItem>
+                {accounts.map((account) => (
+                  <MenuItem key={account.id} value={String(account.id)}>
+                    {account.name} ({account.bank})
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                label="Initial Due Date"
+                type="date"
+                value={versionFormData.startDate}
+                onChange={(e) => setVersionFormData({ ...versionFormData, startDate: e.target.value })}
+                required
+                fullWidth
+                InputLabelProps={{ shrink: true }}
+              />
+              <FormControl fullWidth variant="outlined">
+                <Autocomplete
+                  multiple
+                  freeSolo
+                  options={availableTags}
+                  value={versionFormData.tags}
+                  onChange={(event, newValue) => {
+                    setVersionFormData({ ...versionFormData, tags: newValue });
+                  }}
+                  renderTags={(value, getTagProps) =>
+                    value.map((option, index) => {
+                      const tagProps = getTagProps({ index });
+                      const { key, ...otherProps } = tagProps;
+                      return (
+                        <Chip
+                          key={key}
+                          label={option}
+                          size="small"
+                          {...otherProps}
+                          sx={{
+                            backgroundColor: getTagColor(option),
+                            color: '#ffffff',
+                            '&:hover': {
+                              backgroundColor: getTagColor(option),
+                              opacity: 0.8
+                            }
+                          }}
+                        />
+                      );
+                    })
+                  }
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Tags"
+                      placeholder="Add tags"
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  )}
+                />
+              </FormControl>
+              <TextField
+                label="Notes"
+                value={versionFormData.notes}
+                onChange={(e) => setVersionFormData({ ...versionFormData, notes: e.target.value })}
+                multiline
+                rows={2}
+                fullWidth
+                InputLabelProps={{ shrink: true }}
+              />
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <Checkbox
+                  checked={versionFormData.manualWithdrawalsOnly}
+                  onChange={(e) => setVersionFormData({ ...versionFormData, manualWithdrawalsOnly: e.target.checked })}
+                  color="primary"
+                />
+                <Typography variant="body2" color="text.secondary">
+                  Long-term savings
+                </Typography>
+              </Box>
+            </>
+          )}
             </Box>
           </DialogContent>
           <DialogActions>
-            <Button onClick={handleClose}>Cancel</Button>
-            <Button type="submit" variant="contained" color="primary">
-              {editingExpense ? "Update" : "Add"}
-            </Button>
+            {selectedVersionTab === 0 ? (
+              <>
+                <Button type="submit" variant="contained" color="primary">
+                  Update
+                </Button>
+                <Button onClick={handleClose} variant="outlined">
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button type="submit" variant="contained" color="primary">
+                  Update
+                </Button>
+                <Button onClick={handleClose} variant="outlined">
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={() => handleActivateVersion(editingVersion?.id || 0)} 
+                  variant="outlined" 
+                  color="primary"
+                  disabled={editingVersion?.is_active}
+                >
+                  Activate
+                </Button>
+                <Button 
+                  onClick={() => {
+                    if (window.confirm('Are you sure you want to delete this version?')) {
+                      handleDeleteVersion(editingVersion?.id || 0);
+                    }
+                  }} 
+                  variant="outlined"
+                  color="error"
+                >
+                  Delete
+                </Button>
+              </>
+            )}
           </DialogActions>
         </form>
       </Dialog>
@@ -1411,6 +1983,8 @@ const Expenses = () => {
         accounts={manualAdjustmentAccounts}
         allowedType="withdrawal"
       />
+
+
     </Box>
   );
 };

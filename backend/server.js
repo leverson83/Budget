@@ -288,6 +288,42 @@ const db = new sqlite3.Database(dbPath, (err) => {
         )
       `);
 
+      // Create expense_versions table for individual expense versioning
+      db.run(`
+        CREATE TABLE IF NOT EXISTS expense_versions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          expense_id TEXT NOT NULL,
+          user_id INTEGER NOT NULL,
+          version_name TEXT NOT NULL,
+          description TEXT NOT NULL,
+          amount REAL NOT NULL,
+          frequency TEXT NOT NULL,
+          nextDue TEXT NOT NULL,
+          applyFuzziness INTEGER DEFAULT 0,
+          notes TEXT,
+          accountId INTEGER,
+          manualWithdrawalsOnly INTEGER DEFAULT 0,
+          is_active INTEGER DEFAULT 0,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (expense_id) REFERENCES expenses(id) ON DELETE CASCADE,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (accountId) REFERENCES accounts(id) ON DELETE SET NULL,
+          UNIQUE(expense_id, version_name)
+        )
+      `);
+
+      // Create expense_version_tags junction table
+      db.run(`
+        CREATE TABLE IF NOT EXISTS expense_version_tags (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          expense_version_id INTEGER NOT NULL,
+          tag_id INTEGER NOT NULL,
+          FOREIGN KEY (expense_version_id) REFERENCES expense_versions(id) ON DELETE CASCADE,
+          FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE,
+          UNIQUE(expense_version_id, tag_id)
+        )
+      `);
+
       // Create forecast_settings table
       db.run(`
         CREATE TABLE IF NOT EXISTS forecast_settings (
@@ -1945,6 +1981,471 @@ app.delete('/api/expenses/:id', authenticateToken, (req, res) => {
       return;
     }
     res.json({ changes: this.changes });
+  });
+});
+
+// Get expense versions
+app.get('/api/expenses/:id/versions', authenticateToken, (req, res) => {
+  const { id } = req.params;
+  
+  const query = `
+    SELECT ev.*, 
+           GROUP_CONCAT(t.name) as tags,
+           a.name as accountName
+    FROM expense_versions ev
+    LEFT JOIN expense_version_tags evt ON ev.id = evt.expense_version_id
+    LEFT JOIN tags t ON evt.tag_id = t.id
+    LEFT JOIN accounts a ON ev.accountId = a.id
+    WHERE ev.expense_id = ? AND ev.user_id = ?
+    GROUP BY ev.id
+    ORDER BY ev.created_at DESC
+  `;
+  
+  db.all(query, [id, req.user.userId], (err, rows) => {
+    if (err) {
+      console.error('Error fetching expense versions:', err);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    
+    const processedRows = rows.map(row => ({
+      ...row,
+      applyFuzziness: Boolean(row.applyFuzziness),
+      manualWithdrawalsOnly: Boolean(row.manualWithdrawalsOnly),
+      is_active: Boolean(row.is_active),
+      tags: row.tags ? row.tags.split(',').filter(Boolean) : []
+    }));
+    
+    res.json(processedRows);
+  });
+});
+
+// Create new expense version
+app.post('/api/expenses/:id/versions', authenticateToken, (req, res) => {
+  const { id } = req.params;
+  const { version_name, description, amount, frequency, nextDue, applyFuzziness, notes, tags, accountId, manualWithdrawalsOnly } = req.body;
+  
+  if (!version_name || !description || !amount || !frequency || !nextDue) {
+    res.status(400).json({ error: 'Missing required fields' });
+    return;
+  }
+
+  console.log('Creating expense version with data:', { id, version_name, description, amount, frequency, nextDue, applyFuzziness, notes, tags, accountId, manualWithdrawalsOnly });
+
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
+
+    // Insert expense version
+    db.run(
+      'INSERT INTO expense_versions (expense_id, user_id, version_name, description, amount, frequency, nextDue, applyFuzziness, notes, accountId, manualWithdrawalsOnly) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, req.user.userId, version_name, description, amount, frequency, nextDue, applyFuzziness ? 1 : 0, notes || null, accountId || null, manualWithdrawalsOnly ? 1 : 0],
+      function(err) {
+        if (err) {
+          console.error('Error creating expense version:', err);
+          db.run('ROLLBACK');
+          res.status(500).json({ error: err.message });
+          return;
+        }
+
+        const versionId = this.lastID;
+
+        // If there are tags, insert them
+        if (tags && tags.length > 0) {
+          console.log('Inserting tags for expense version:', tags);
+          let completedTags = 0;
+          const totalTags = tags.length;
+          let hasError = false;
+
+          tags.forEach(tagName => {
+            // Get or create tag
+            db.get('SELECT id FROM tags WHERE name = ? AND user_id = ? AND version_id = (SELECT version_id FROM expenses WHERE id = ?)', [tagName, req.user.userId, id], (err, tag) => {
+              if (err) {
+                console.error('Error getting tag:', err);
+                hasError = true;
+                completedTags++;
+                if (completedTags === totalTags) {
+                  db.run('ROLLBACK');
+                  res.status(500).json({ error: err.message });
+                }
+                return;
+              }
+
+              if (tag) {
+                // Tag exists, link it to the expense version
+                db.run('INSERT INTO expense_version_tags (expense_version_id, tag_id) VALUES (?, ?)', [versionId, tag.id], (err) => {
+                  if (err && err.code !== 'SQLITE_CONSTRAINT_UNIQUE') {
+                    console.error('Error linking tag to expense version:', err);
+                    hasError = true;
+                  }
+                  completedTags++;
+                  if (completedTags === totalTags) {
+                    if (hasError) {
+                      db.run('ROLLBACK');
+                      res.status(500).json({ error: 'Error linking tags' });
+                    } else {
+                      db.run('COMMIT');
+                      res.json({ message: 'Expense version created successfully', versionId });
+                    }
+                  }
+                });
+              } else {
+                // Tag doesn't exist, skip it for now
+                console.log(`Tag "${tagName}" not found, skipping`);
+                completedTags++;
+                if (completedTags === totalTags) {
+                  if (hasError) {
+                    db.run('ROLLBACK');
+                    res.status(500).json({ error: 'Error linking tags' });
+                  } else {
+                    db.run('COMMIT');
+                    res.json({ message: 'Expense version created successfully', versionId });
+                  }
+                }
+              }
+            });
+          });
+        } else {
+          db.run('COMMIT');
+          res.json({ message: 'Expense version created successfully', versionId });
+        }
+      }
+    );
+  });
+});
+
+// Update expense version
+app.put('/api/expenses/:id/versions/:versionId', authenticateToken, (req, res) => {
+  const { id, versionId } = req.params;
+  const { description, amount, frequency, nextDue, applyFuzziness, notes, tags, accountId, manualWithdrawalsOnly } = req.body;
+
+  if (!description || !amount || !frequency || !nextDue) {
+    res.status(400).json({ error: 'Missing required fields' });
+    return;
+  }
+
+  console.log('Updating expense version with data:', { id, versionId, description, amount, frequency, nextDue, applyFuzziness, notes, tags, accountId, manualWithdrawalsOnly });
+
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
+
+    // Update expense version
+    db.run(
+      'UPDATE expense_versions SET description = ?, amount = ?, frequency = ?, nextDue = ?, applyFuzziness = ?, notes = ?, accountId = ?, manualWithdrawalsOnly = ? WHERE id = ? AND expense_id = ? AND user_id = ?',
+      [description, amount, frequency, nextDue, applyFuzziness ? 1 : 0, notes || null, accountId || null, manualWithdrawalsOnly ? 1 : 0, versionId, id, req.user.userId],
+      function(err) {
+        if (err) {
+          console.error('Error updating expense version:', err);
+          db.run('ROLLBACK');
+          res.status(500).json({ error: err.message });
+          return;
+        }
+
+        if (this.changes === 0) {
+          db.run('ROLLBACK');
+          res.status(404).json({ error: 'Expense version not found' });
+          return;
+        }
+
+        // Update tags
+        db.run('DELETE FROM expense_version_tags WHERE expense_version_id = ?', [versionId], (err) => {
+          if (err) {
+            console.error('Error deleting old tags:', err);
+            db.run('ROLLBACK');
+            res.status(500).json({ error: err.message });
+            return;
+          }
+
+          if (tags && tags.length > 0) {
+            let completedTags = 0;
+            const totalTags = tags.length;
+            let hasError = false;
+
+            tags.forEach(tagName => {
+              db.get('SELECT id FROM tags WHERE name = ? AND user_id = ? AND version_id = (SELECT version_id FROM expenses WHERE id = ?)', [tagName, req.user.userId, id], (err, tag) => {
+                if (err) {
+                  console.error('Error getting tag:', err);
+                  hasError = true;
+                  completedTags++;
+                  if (completedTags === totalTags) {
+                    db.run('ROLLBACK');
+                    res.status(500).json({ error: err.message });
+                  }
+                  return;
+                }
+
+                if (tag) {
+                  db.run('INSERT INTO expense_version_tags (expense_version_id, tag_id) VALUES (?, ?)', [versionId, tag.id], (err) => {
+                    if (err && err.code !== 'SQLITE_CONSTRAINT_UNIQUE') {
+                      console.error('Error linking tag to expense version:', err);
+                      hasError = true;
+                    }
+                    completedTags++;
+                    if (completedTags === totalTags) {
+                      if (hasError) {
+                        db.run('ROLLBACK');
+                        res.status(500).json({ error: 'Error linking tags' });
+                      } else {
+                        db.run('COMMIT');
+                        res.json({ message: 'Expense version updated successfully' });
+                      }
+                    }
+                  });
+                } else {
+                  completedTags++;
+                  if (completedTags === totalTags) {
+                    if (hasError) {
+                      db.run('ROLLBACK');
+                      res.status(500).json({ error: 'Error linking tags' });
+                    } else {
+                      db.run('COMMIT');
+                      res.json({ message: 'Expense version updated successfully' });
+                    }
+                  }
+                }
+              });
+            });
+          } else {
+            db.run('COMMIT');
+            res.json({ message: 'Expense version updated successfully' });
+          }
+        });
+      }
+    );
+  });
+});
+
+// Delete expense version
+app.delete('/api/expenses/:id/versions/:versionId', authenticateToken, (req, res) => {
+  const { id, versionId } = req.params;
+
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
+
+    // Delete expense version tags first
+    db.run('DELETE FROM expense_version_tags WHERE expense_version_id = ?', [versionId], (err) => {
+      if (err) {
+        console.error('Error deleting expense version tags:', err);
+        db.run('ROLLBACK');
+        res.status(500).json({ error: err.message });
+        return;
+      }
+
+      // Delete the expense version
+      db.run('DELETE FROM expense_versions WHERE id = ? AND expense_id = ? AND user_id = ?', [versionId, id, req.user.userId], function(err) {
+        if (err) {
+          console.error('Error deleting expense version:', err);
+          db.run('ROLLBACK');
+          res.status(500).json({ error: err.message });
+          return;
+        }
+
+        if (this.changes === 0) {
+          db.run('ROLLBACK');
+          res.status(404).json({ error: 'Expense version not found' });
+          return;
+        }
+
+        db.run('COMMIT');
+        res.json({ message: 'Expense version deleted successfully' });
+      });
+    });
+  });
+});
+
+// Activate expense version (apply it to the main expense)
+app.post('/api/expenses/:id/versions/:versionId/activate', authenticateToken, (req, res) => {
+  const { id, versionId } = req.params;
+
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
+
+    // First, get the current main expense data to save it as a version if needed
+    db.get('SELECT * FROM expenses WHERE id = ? AND user_id = ?', [id, req.user.userId], (err, currentExpense) => {
+      if (err) {
+        console.error('Error getting current expense:', err);
+        db.run('ROLLBACK');
+        res.status(500).json({ error: err.message });
+        return;
+      }
+
+      if (!currentExpense) {
+        db.run('ROLLBACK');
+        res.status(404).json({ error: 'Expense not found' });
+        return;
+      }
+
+      // Get the expense version data to activate
+      db.get('SELECT * FROM expense_versions WHERE id = ? AND expense_id = ? AND user_id = ?', [versionId, id, req.user.userId], (err, version) => {
+        if (err) {
+          console.error('Error getting expense version:', err);
+          db.run('ROLLBACK');
+          res.status(500).json({ error: err.message });
+          return;
+        }
+
+        if (!version) {
+          db.run('ROLLBACK');
+          res.status(404).json({ error: 'Expense version not found' });
+          return;
+        }
+
+        // Check if we need to save the current main expense data as a version
+        // Only save if the current data is different from any existing version
+        db.all('SELECT * FROM expense_versions WHERE expense_id = ? AND user_id = ?', [id, req.user.userId], (err, existingVersions) => {
+          if (err) {
+            console.error('Error getting existing versions:', err);
+            db.run('ROLLBACK');
+            res.status(500).json({ error: err.message });
+            return;
+          }
+
+          // Check if current main expense data matches any existing version
+          const currentDataMatchesVersion = existingVersions.some(existingVersion => 
+            existingVersion.description === currentExpense.description &&
+            existingVersion.amount === currentExpense.amount &&
+            existingVersion.frequency === currentExpense.frequency &&
+            existingVersion.nextDue === currentExpense.nextDue &&
+            existingVersion.notes === currentExpense.notes &&
+            existingVersion.accountId === currentExpense.accountId &&
+            existingVersion.manualWithdrawalsOnly === currentExpense.manualWithdrawalsOnly
+          );
+
+          // If current data doesn't match any existing version, save it as a new version
+          if (!currentDataMatchesVersion) {
+            // Generate a unique version name
+            let newVersionName;
+            if (existingVersions.length === 0) {
+              // This is the first version, so save current data as v1
+              newVersionName = 'v1';
+              console.log('Creating first version as v1');
+            } else {
+              // Check if v1 already exists
+              const hasV1 = existingVersions.some(v => v.version_name === 'v1');
+              if (!hasV1) {
+                // v1 doesn't exist, so save current data as v1
+                newVersionName = 'v1';
+                console.log('Creating v1 (original data)');
+              } else {
+                // Generate a unique version name
+                const versionNumbers = existingVersions
+                  .map(v => {
+                    const match = v.version_name.match(/v(\d+)/);
+                    return match ? parseInt(match[1]) : 0;
+                  })
+                  .filter(num => num > 0);
+                const nextVersionNumber = versionNumbers.length > 0 ? Math.max(...versionNumbers) + 1 : 1;
+                newVersionName = `v${nextVersionNumber}`;
+                console.log(`Creating version as ${newVersionName} (existing versions: ${existingVersions.map(v => v.version_name).join(', ')})`);
+              }
+            }
+
+            // Save current main expense data as a new version
+            db.run(
+              'INSERT INTO expense_versions (expense_id, user_id, version_name, description, amount, frequency, nextDue, applyFuzziness, notes, accountId, manualWithdrawalsOnly, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)',
+              [id, req.user.userId, newVersionName, currentExpense.description, currentExpense.amount, currentExpense.frequency, currentExpense.nextDue, currentExpense.applyFuzziness, currentExpense.notes, currentExpense.accountId, currentExpense.manualWithdrawalsOnly],
+              function(err) {
+                if (err) {
+                  console.error('Error saving current data as version:', err);
+                  db.run('ROLLBACK');
+                  res.status(500).json({ error: err.message });
+                  return;
+                }
+
+                const newVersionId = this.lastID;
+
+                // Copy current expense tags to the new version
+                db.all('SELECT tag_id FROM expense_tags WHERE expense_id = ?', [id], (err, currentTags) => {
+                  if (err) {
+                    console.error('Error getting current expense tags:', err);
+                    db.run('ROLLBACK');
+                    res.status(500).json({ error: err.message });
+                    return;
+                  }
+
+                  if (currentTags.length > 0) {
+                    let completedTags = 0;
+                    const totalTags = currentTags.length;
+
+                    currentTags.forEach(tag => {
+                      db.run('INSERT INTO expense_version_tags (expense_version_id, tag_id) VALUES (?, ?)', [newVersionId, tag.tag_id], (err) => {
+                        if (err && err.code !== 'SQLITE_CONSTRAINT_UNIQUE') {
+                          console.error('Error linking tag to new version:', err);
+                        }
+                        completedTags++;
+                        if (completedTags === totalTags) {
+                          proceedWithActivation();
+                        }
+                      });
+                    });
+                  } else {
+                    proceedWithActivation();
+                  }
+                });
+              }
+            );
+          } else {
+            proceedWithActivation();
+          }
+
+          function proceedWithActivation() {
+            // Update the main expense with the version data
+            db.run(
+              'UPDATE expenses SET description = ?, amount = ?, frequency = ?, nextDue = ?, applyFuzziness = ?, notes = ?, accountId = ?, manualWithdrawalsOnly = ? WHERE id = ? AND user_id = ?',
+              [version.description, version.amount, version.frequency, version.nextDue, version.applyFuzziness, version.notes, version.accountId, version.manualWithdrawalsOnly, id, req.user.userId],
+              function(err) {
+                if (err) {
+                  console.error('Error updating expense:', err);
+                  db.run('ROLLBACK');
+                  res.status(500).json({ error: err.message });
+                  return;
+                }
+
+                // Update tags
+                db.run('DELETE FROM expense_tags WHERE expense_id = ?', [id], (err) => {
+                  if (err) {
+                    console.error('Error deleting old expense tags:', err);
+                    db.run('ROLLBACK');
+                    res.status(500).json({ error: err.message });
+                    return;
+                  }
+
+                  // Get version tags and apply them to the main expense
+                  db.all('SELECT tag_id FROM expense_version_tags WHERE expense_version_id = ?', [versionId], (err, versionTags) => {
+                    if (err) {
+                      console.error('Error getting version tags:', err);
+                      db.run('ROLLBACK');
+                      res.status(500).json({ error: err.message });
+                      return;
+                    }
+
+                    if (versionTags.length > 0) {
+                      let completedTags = 0;
+                      const totalTags = versionTags.length;
+
+                      versionTags.forEach(versionTag => {
+                        db.run('INSERT INTO expense_tags (expense_id, tag_id) VALUES (?, ?)', [id, versionTag.tag_id], (err) => {
+                          if (err && err.code !== 'SQLITE_CONSTRAINT_UNIQUE') {
+                            console.error('Error linking tag to expense:', err);
+                          }
+                          completedTags++;
+                          if (completedTags === totalTags) {
+                            db.run('COMMIT');
+                            res.json({ message: 'Expense version activated successfully' });
+                          }
+                        });
+                      });
+                    } else {
+                      db.run('COMMIT');
+                      res.json({ message: 'Expense version activated successfully' });
+                    }
+                  });
+                });
+              }
+            );
+          }
+        });
+      });
+    });
   });
 });
 
