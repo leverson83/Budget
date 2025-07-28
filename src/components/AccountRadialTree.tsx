@@ -176,9 +176,16 @@ const AccountRadialTree: React.FC<AccountRadialTreeProps> = ({ accounts, perAcco
                 {!isRoot && (() => {
                   const percent = typeof node.data.expense === 'number' && totalExpenses > 0 ? `${((node.data.expense / totalExpenses) * 100).toFixed(1)}%` : '';
                   if (!percent) return null;
-                  const badgeW = baseSize * 0.4, badgeH = baseSize * 0.25; // Increased size
+                  
+                  // Calculate dynamic badge width based on text length
+                  const fontSize = Math.max(10, baseSize * 0.08);
+                  const textWidth = percent.length * fontSize * 0.6; // Approximate character width
+                  const minBadgeW = baseSize * 0.4;
+                  const badgeW = Math.max(minBadgeW, textWidth + 16); // Add padding
+                  const badgeH = baseSize * 0.25;
                   const badgeX = nodeW / 2 - badgeW / 2 - 8; // More padding from edge
                   const badgeY = -nodeH / 2 - badgeH / 2 - 4 - nodeH * 0.15; // More padding from top
+                  
                   return (
                     <g>
                       <rect
@@ -197,7 +204,7 @@ const AccountRadialTree: React.FC<AccountRadialTreeProps> = ({ accounts, perAcco
                         x={badgeX + badgeW / 2}
                         y={badgeY + badgeH / 2 + 1}
                         textAnchor="middle"
-                        fontSize={Math.max(10, baseSize * 0.08)}
+                        fontSize={fontSize}
                         fontWeight="bold"
                         fill="#222"
                         dominantBaseline="middle"

@@ -30,6 +30,7 @@ import {
 } from '@mui/material';
 import type { SelectChangeEvent } from '@mui/material/Select';
 import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Info as InfoIcon, Calculate as CalculateIcon } from '@mui/icons-material';
+import { Tabs, Tab } from '@mui/material';
 import { format } from 'date-fns';
 import { API_URL, frequencies, type Frequency } from '../config';
 import { useFrequency } from '../contexts/FrequencyContext';
@@ -45,6 +46,19 @@ interface IncomeEntry {
   frequency: Frequency;
   nextDue: Date;
   isCalculated?: boolean;
+}
+
+interface IncomeVersion {
+  id: number;
+  income_id: string;
+  version_name: string;
+  description: string;
+  amount: number;
+  frequency: Frequency;
+  nextDue: string;
+  applyFuzziness: boolean;
+  is_active: boolean;
+  created_at: string;
 }
 
 const formatCurrency = (amount: number) => {
@@ -92,6 +106,39 @@ const Income = () => {
   });
   const [manualAdjustmentOpen, setManualAdjustmentOpen] = useState(false);
   const [manualAdjustmentAccounts, setManualAdjustmentAccounts] = useState([]);
+  
+  // Versioning state
+  const [versions, setVersions] = useState<IncomeVersion[]>([]);
+  const [selectedVersionTab, setSelectedVersionTab] = useState(0);
+  const [editingVersion, setEditingVersion] = useState<IncomeVersion | null>(null);
+  const [originalIncomeData, setOriginalIncomeData] = useState<IncomeEntry | null>(null);
+  const [versionFormData, setVersionFormData] = useState({
+    description: '',
+    amount: '',
+    frequency: 'monthly' as Frequency,
+    nextDue: new Date().toISOString().split('T')[0],
+    applyFuzziness: false,
+  });
+
+  const getNextVersionNumber = () => {
+    const versionNumbers = versions
+      .map(v => v.version_name.match(/v(\d+)/))
+      .filter((match): match is RegExpMatchArray => match !== null)
+      .map(match => parseInt(match[1]))
+      .sort((a, b) => b - a);
+    
+    return versionNumbers.length > 0 ? versionNumbers[0] + 1 : 2;
+  };
+
+  const sortVersionsByNumber = (versionsList: IncomeVersion[]) => {
+    return versionsList.sort((a, b) => {
+      const aMatch = a.version_name.match(/v(\d+)/);
+      const bMatch = b.version_name.match(/v(\d+)/);
+      const aNum = aMatch ? parseInt(aMatch[1]) : 0;
+      const bNum = bMatch ? parseInt(bMatch[1]) : 0;
+      return aNum - bNum;
+    });
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -131,23 +178,43 @@ const Income = () => {
     }
   }, [versionChangeTrigger]);
 
-  const handleOpen = (income?: IncomeEntry) => {
+  const handleOpen = async (income?: IncomeEntry) => {
     if (income) {
       setEditingIncome(income);
+      setOriginalIncomeData(income);
       setNewIncome({
         description: income.description,
         amount: income.amount.toString(),
         frequency: income.frequency,
         nextDue: income.nextDue.toISOString().split('T')[0],
       });
+      
+      // Fetch versions for this income
+      const versionsData = await fetchVersions(income.id);
+      
+      // Find active version and set tab accordingly
+      const activeVersion = versionsData.find(v => v.is_active);
+      if (activeVersion) {
+        const activeIndex = sortVersionsByNumber(versionsData).findIndex(v => v.id === activeVersion.id);
+        setSelectedVersionTab(activeIndex + 1);
+        handleLoadVersion(activeVersion);
+      } else {
+        setSelectedVersionTab(0);
+      }
+      
+      setEditingVersion(null);
     } else {
       setEditingIncome(null);
+      setOriginalIncomeData(null);
       setNewIncome({
         description: '',
         amount: '',
         frequency: 'monthly',
         nextDue: new Date().toISOString().split('T')[0],
       });
+      setSelectedVersionTab(0);
+      setEditingVersion(null);
+      setVersions([]);
     }
     setOpen(true);
   };
@@ -155,12 +222,17 @@ const Income = () => {
   const handleClose = () => {
     setOpen(false);
     setEditingIncome(null);
+    setOriginalIncomeData(null);
     setNewIncome({
       description: '',
       amount: '',
       frequency: 'monthly',
       nextDue: new Date().toISOString().split('T')[0],
     });
+    setVersions([]);
+    setSelectedVersionTab(0);
+    setEditingVersion(null);
+    setError(null);
   };
 
   const handleDeleteClick = (id: string) => {
@@ -189,77 +261,240 @@ const Income = () => {
 
   const handleSubmit = async () => {
     try {
-      // Validate form
-      if (!newIncome.description || !newIncome.amount || !newIncome.nextDue) {
-        setError('Please fill in all fields');
-        return;
-      }
+      if (selectedVersionTab === 0) {
+        // Handle main income form
+        if (!newIncome.description || !newIncome.amount || !newIncome.nextDue) {
+          setError('Please fill in all fields');
+          return;
+        }
 
-      const amount = parseFloat(newIncome.amount);
-      if (isNaN(amount) || amount <= 0) {
-        setError('Please enter a valid amount');
-        return;
-      }
+        const amount = parseFloat(newIncome.amount);
+        if (isNaN(amount) || amount <= 0) {
+          setError('Please enter a valid amount');
+          return;
+        }
 
-      const incomeData = {
-        description: newIncome.description,
-        amount: amount,
-        frequency: newIncome.frequency,
-        nextDue: new Date(newIncome.nextDue).toISOString(),
-      };
+        const incomeData = {
+          description: newIncome.description,
+          amount: amount,
+          frequency: newIncome.frequency,
+          nextDue: new Date(newIncome.nextDue).toISOString(),
+        };
 
-      if (editingIncome) {
-        // Update existing income
-        const response = await apiCall(`/income/${editingIncome.id}`, {
+        if (editingIncome) {
+          // Update existing income
+          const response = await apiCall(`/income/${editingIncome.id}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              ...incomeData,
+              id: editingIncome.id
+            }),
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to update income');
+          }
+
+          setIncomes(prevIncomes =>
+            prevIncomes.map(income =>
+              income.id === editingIncome.id
+                ? { ...income, ...incomeData, nextDue: new Date(incomeData.nextDue) }
+                : income
+            )
+          );
+        } else {
+          // Create new income
+          const newEntry = {
+            id: Date.now().toString(),
+            ...incomeData,
+          };
+
+          const response = await apiCall('/income', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(newEntry),
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to create income');
+          }
+
+          setIncomes(prevIncomes => [...prevIncomes, { ...newEntry, nextDue: new Date(newEntry.nextDue) }]);
+        }
+      } else {
+        // Handle version form
+        if (!versionFormData.description || !versionFormData.amount || !versionFormData.nextDue) {
+          setError('Please fill in all fields');
+          return;
+        }
+
+        const amount = parseFloat(versionFormData.amount);
+        if (isNaN(amount) || amount <= 0) {
+          setError('Please enter a valid amount');
+          return;
+        }
+
+        if (!editingIncome || !editingVersion) {
+          setError('No income or version selected');
+          return;
+        }
+
+        const response = await apiCall(`/income/${editingIncome.id}/versions/${editingVersion.id}`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            ...incomeData,
-            id: editingIncome.id
+            description: versionFormData.description,
+            amount: amount,
+            frequency: versionFormData.frequency,
+            nextDue: new Date(versionFormData.nextDue).toISOString(),
+            applyFuzziness: versionFormData.applyFuzziness,
           }),
         });
 
         if (!response.ok) {
           const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to update income');
+          throw new Error(errorData.error || 'Failed to update version');
         }
 
-        setIncomes(prevIncomes =>
-          prevIncomes.map(income =>
-            income.id === editingIncome.id
-              ? { ...income, ...incomeData, nextDue: new Date(incomeData.nextDue) }
-              : income
-          )
-        );
-      } else {
-        // Create new income
-        const newEntry = {
-          id: Date.now().toString(),
-          ...incomeData,
-        };
-
-        const response = await apiCall('/income', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(newEntry),
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to create income');
-        }
-
-        setIncomes(prevIncomes => [...prevIncomes, { ...newEntry, nextDue: new Date(newEntry.nextDue) }]);
+        // Refresh versions
+        await fetchVersions(editingIncome.id);
       }
       
       handleClose();
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to save income');
       console.error('Error saving income:', error);
+    }
+  };
+
+  const fetchVersions = async (incomeId: string): Promise<IncomeVersion[]> => {
+    try {
+      const response = await apiCall(`/income/${incomeId}/versions`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch versions');
+      }
+      const versionsData = await response.json();
+      setVersions(versionsData);
+      return versionsData;
+    } catch (error) {
+      console.error('Error fetching versions:', error);
+      setError('Failed to fetch versions');
+      return [];
+    }
+  };
+
+  const handleActivateVersion = async (versionId: number) => {
+    try {
+      if (!editingIncome) return;
+
+      // First update the version data if we're on a version tab
+      if (selectedVersionTab > 0 && editingVersion) {
+        const updateResponse = await apiCall(`/income/${editingIncome.id}/versions/${versionId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(versionFormData),
+        });
+
+        if (!updateResponse.ok) {
+          throw new Error('Failed to update version');
+        }
+      }
+
+      // Then activate the version
+      const response = await apiCall(`/income/${editingIncome.id}/versions/${versionId}/activate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to activate version');
+      }
+
+      // Refresh the income data
+      await fetchData();
+      handleClose();
+    } catch (error) {
+      console.error('Error activating version:', error);
+      setError('Failed to activate version');
+    }
+  };
+
+  const handleDeleteVersion = async (versionId: number) => {
+    try {
+      if (!editingIncome) return;
+
+      const response = await apiCall(`/income/${editingIncome.id}/versions/${versionId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete version');
+      }
+
+      // Refresh versions
+      await fetchVersions(editingIncome.id);
+    } catch (error) {
+      console.error('Error deleting version:', error);
+      setError('Failed to delete version');
+    }
+  };
+
+  const handleLoadVersion = (version: IncomeVersion) => {
+    setEditingVersion(version);
+    setVersionFormData({
+      description: version.description,
+      amount: version.amount.toString(),
+      frequency: version.frequency,
+      nextDue: version.nextDue.split('T')[0],
+      applyFuzziness: version.applyFuzziness,
+    });
+  };
+
+  const handleVersion1Click = () => {
+    if (originalIncomeData) {
+      setNewIncome({
+        description: originalIncomeData.description,
+        amount: originalIncomeData.amount.toString(),
+        frequency: originalIncomeData.frequency,
+        nextDue: originalIncomeData.nextDue.toISOString().split('T')[0],
+      });
+    }
+  };
+
+  const ensureVersion1Exists = async (incomeId: string) => {
+    try {
+      const versionsData = await fetchVersions(incomeId);
+      const v1Exists = versionsData.some(v => v.version_name === 'v1');
+      
+      if (!v1Exists && originalIncomeData) {
+        const response = await apiCall(`/income/${incomeId}/versions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            version_name: 'v1',
+            description: originalIncomeData.description,
+            amount: originalIncomeData.amount,
+            frequency: originalIncomeData.frequency,
+            nextDue: originalIncomeData.nextDue.toISOString(),
+            applyFuzziness: false,
+          }),
+        });
+
+        if (response.ok) {
+          await fetchVersions(incomeId);
+        }
+      }
+    } catch (error) {
+      console.error('Error ensuring v1 exists:', error);
     }
   };
 
@@ -638,21 +873,87 @@ const Income = () => {
         <DialogTitle>
           {editingIncome ? 'Edit Income Source' : 'Add Income Source'}
         </DialogTitle>
+        
+        {/* Version Tabs */}
+        {editingIncome && (
+          <Tabs 
+            value={selectedVersionTab} 
+            onChange={(_, newValue) => setSelectedVersionTab(newValue)}
+            sx={{ borderBottom: 1, borderColor: 'divider' }}
+          >
+            <Tab 
+              label="Current" 
+              onClick={handleVersion1Click}
+            />
+            {sortVersionsByNumber(versions).map((version, index) => (
+              <Tab 
+                key={version.id} 
+                label={version.version_name}
+                onClick={() => handleLoadVersion(version)}
+              />
+            ))}
+            <Tab 
+              label="+" 
+              onClick={async () => {
+                if (versions.length === 0) {
+                  await ensureVersion1Exists(editingIncome.id);
+                }
+                
+                const nextVersionNumber = getNextVersionNumber();
+                const response = await apiCall(`/income/${editingIncome.id}/versions`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    version_name: `v${nextVersionNumber}`,
+                    description: newIncome.description,
+                    amount: parseFloat(newIncome.amount),
+                    frequency: newIncome.frequency,
+                    nextDue: new Date(newIncome.nextDue).toISOString(),
+                    applyFuzziness: false,
+                  }),
+                });
+
+                if (response.ok) {
+                  const versionsData = await fetchVersions(editingIncome.id);
+                  const newVersion = versionsData.find(v => v.version_name === `v${nextVersionNumber}`);
+                  if (newVersion) {
+                    const newVersionIndex = sortVersionsByNumber(versionsData).findIndex(v => v.id === newVersion.id);
+                    setSelectedVersionTab(newVersionIndex + 1);
+                    handleLoadVersion(newVersion);
+                  }
+                }
+              }}
+            />
+          </Tabs>
+        )}
+        
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
             <TextField
               label="Description"
               fullWidth
-              value={newIncome.description}
-              onChange={(e) => setNewIncome({ ...newIncome, description: e.target.value })}
+              value={selectedVersionTab === 0 ? newIncome.description : versionFormData.description}
+              onChange={(e) => {
+                if (selectedVersionTab === 0) {
+                  setNewIncome({ ...newIncome, description: e.target.value });
+                } else {
+                  setVersionFormData({ ...versionFormData, description: e.target.value });
+                }
+              }}
               required
             />
             <TextField
               label="Amount"
               type="number"
               fullWidth
-              value={newIncome.amount}
-              onChange={(e) => setNewIncome({ ...newIncome, amount: e.target.value })}
+              value={selectedVersionTab === 0 ? newIncome.amount : versionFormData.amount}
+              onChange={(e) => {
+                if (selectedVersionTab === 0) {
+                  setNewIncome({ ...newIncome, amount: e.target.value });
+                } else {
+                  setVersionFormData({ ...versionFormData, amount: e.target.value });
+                }
+              }}
               InputProps={{
                 startAdornment: '$',
               }}
@@ -662,8 +963,14 @@ const Income = () => {
               select
               label="Frequency"
               fullWidth
-              value={newIncome.frequency}
-              onChange={(e) => setNewIncome({ ...newIncome, frequency: e.target.value as Frequency })}
+              value={selectedVersionTab === 0 ? newIncome.frequency : versionFormData.frequency}
+              onChange={(e) => {
+                if (selectedVersionTab === 0) {
+                  setNewIncome({ ...newIncome, frequency: e.target.value as Frequency });
+                } else {
+                  setVersionFormData({ ...versionFormData, frequency: e.target.value as Frequency });
+                }
+              }}
               required
               SelectProps={{
                 inputProps: {
@@ -682,8 +989,14 @@ const Income = () => {
               label="Next Due Date"
               type="date"
               fullWidth
-              value={newIncome.nextDue}
-              onChange={(e) => setNewIncome({ ...newIncome, nextDue: e.target.value })}
+              value={selectedVersionTab === 0 ? newIncome.nextDue : versionFormData.nextDue}
+              onChange={(e) => {
+                if (selectedVersionTab === 0) {
+                  setNewIncome({ ...newIncome, nextDue: e.target.value });
+                } else {
+                  setVersionFormData({ ...versionFormData, nextDue: e.target.value });
+                }
+              }}
               InputLabelProps={{
                 shrink: true,
               }}
@@ -692,10 +1005,41 @@ const Income = () => {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleClose}>Cancel</Button>
-          <Button onClick={handleSubmit} variant="contained">
-            {editingIncome ? 'Save Changes' : 'Add Income'}
-          </Button>
+          {selectedVersionTab === 0 ? (
+            <>
+              <Button onClick={handleClose} variant="outlined">
+                Cancel
+              </Button>
+              <Button type="submit" variant="contained" color="primary" onClick={handleSubmit}>
+                Update
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button 
+                onClick={() => {
+                  if (window.confirm('Are you sure you want to delete this version?')) {
+                    handleDeleteVersion(editingVersion?.id || 0);
+                  }
+                }} 
+                variant="outlined"
+                color="error"
+              >
+                Delete
+              </Button>
+              <Button onClick={handleClose} variant="outlined">
+                Cancel
+              </Button>
+              <Button 
+                onClick={() => handleActivateVersion(editingVersion?.id || 0)} 
+                variant="contained" 
+                color="primary"
+                disabled={editingVersion?.is_active}
+              >
+                Activate
+              </Button>
+            </>
+          )}
         </DialogActions>
       </Dialog>
 

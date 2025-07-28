@@ -324,6 +324,26 @@ const db = new sqlite3.Database(dbPath, (err) => {
         )
       `);
 
+      // Create income_versions table
+      db.run(`
+        CREATE TABLE IF NOT EXISTS income_versions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          income_id TEXT NOT NULL,
+          user_id INTEGER NOT NULL,
+          version_name TEXT NOT NULL,
+          description TEXT NOT NULL,
+          amount REAL NOT NULL,
+          frequency TEXT NOT NULL,
+          nextDue TEXT NOT NULL,
+          applyFuzziness BOOLEAN DEFAULT 0,
+          is_active INTEGER DEFAULT 0,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (income_id) REFERENCES income(id) ON DELETE CASCADE,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+          UNIQUE(income_id, version_name)
+        )
+      `);
+
       // Create forecast_settings table
       db.run(`
         CREATE TABLE IF NOT EXISTS forecast_settings (
@@ -2299,93 +2319,8 @@ app.post('/api/expenses/:id/versions/:versionId/activate', authenticateToken, (r
             return;
           }
 
-          // Check if current main expense data matches any existing version
-          const currentDataMatchesVersion = existingVersions.some(existingVersion => 
-            existingVersion.description === currentExpense.description &&
-            existingVersion.amount === currentExpense.amount &&
-            existingVersion.frequency === currentExpense.frequency &&
-            existingVersion.nextDue === currentExpense.nextDue &&
-            existingVersion.notes === currentExpense.notes &&
-            existingVersion.accountId === currentExpense.accountId &&
-            existingVersion.manualWithdrawalsOnly === currentExpense.manualWithdrawalsOnly
-          );
-
-          // If current data doesn't match any existing version, save it as a new version
-          if (!currentDataMatchesVersion) {
-            // Generate a unique version name
-            let newVersionName;
-            if (existingVersions.length === 0) {
-              // This is the first version, so save current data as v1
-              newVersionName = 'v1';
-              console.log('Creating first version as v1');
-            } else {
-              // Check if v1 already exists
-              const hasV1 = existingVersions.some(v => v.version_name === 'v1');
-              if (!hasV1) {
-                // v1 doesn't exist, so save current data as v1
-                newVersionName = 'v1';
-                console.log('Creating v1 (original data)');
-              } else {
-                // Generate a unique version name
-                const versionNumbers = existingVersions
-                  .map(v => {
-                    const match = v.version_name.match(/v(\d+)/);
-                    return match ? parseInt(match[1]) : 0;
-                  })
-                  .filter(num => num > 0);
-                const nextVersionNumber = versionNumbers.length > 0 ? Math.max(...versionNumbers) + 1 : 1;
-                newVersionName = `v${nextVersionNumber}`;
-                console.log(`Creating version as ${newVersionName} (existing versions: ${existingVersions.map(v => v.version_name).join(', ')})`);
-              }
-            }
-
-            // Save current main expense data as a new version
-            db.run(
-              'INSERT INTO expense_versions (expense_id, user_id, version_name, description, amount, frequency, nextDue, applyFuzziness, notes, accountId, manualWithdrawalsOnly, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)',
-              [id, req.user.userId, newVersionName, currentExpense.description, currentExpense.amount, currentExpense.frequency, currentExpense.nextDue, currentExpense.applyFuzziness, currentExpense.notes, currentExpense.accountId, currentExpense.manualWithdrawalsOnly],
-              function(err) {
-                if (err) {
-                  console.error('Error saving current data as version:', err);
-                  db.run('ROLLBACK');
-                  res.status(500).json({ error: err.message });
-                  return;
-                }
-
-                const newVersionId = this.lastID;
-
-                // Copy current expense tags to the new version
-                db.all('SELECT tag_id FROM expense_tags WHERE expense_id = ?', [id], (err, currentTags) => {
-                  if (err) {
-                    console.error('Error getting current expense tags:', err);
-                    db.run('ROLLBACK');
-                    res.status(500).json({ error: err.message });
-                    return;
-                  }
-
-                  if (currentTags.length > 0) {
-                    let completedTags = 0;
-                    const totalTags = currentTags.length;
-
-                    currentTags.forEach(tag => {
-                      db.run('INSERT INTO expense_version_tags (expense_version_id, tag_id) VALUES (?, ?)', [newVersionId, tag.tag_id], (err) => {
-                        if (err && err.code !== 'SQLITE_CONSTRAINT_UNIQUE') {
-                          console.error('Error linking tag to new version:', err);
-                        }
-                        completedTags++;
-                        if (completedTags === totalTags) {
-                          proceedWithActivation();
-                        }
-                      });
-                    });
-                  } else {
-                    proceedWithActivation();
-                  }
-                });
-              }
-            );
-          } else {
-            proceedWithActivation();
-          }
+          // Simply proceed with activation - no version creation during activation
+          proceedWithActivation();
 
           function proceedWithActivation() {
             // Update the main expense with the version data
@@ -2443,6 +2378,178 @@ app.post('/api/expenses/:id/versions/:versionId/activate', authenticateToken, (r
               }
             );
           }
+        });
+      });
+    });
+  });
+});
+
+// Income versioning endpoints
+app.get('/api/income/:id/versions', authenticateToken, (req, res) => {
+  const { id } = req.params;
+
+  db.all(`
+    SELECT 
+      iv.id,
+      iv.income_id,
+      iv.version_name,
+      iv.description,
+      iv.amount,
+      iv.frequency,
+      iv.nextDue,
+      iv.applyFuzziness,
+      iv.is_active,
+      iv.created_at
+    FROM income_versions iv
+    WHERE iv.income_id = ? AND iv.user_id = ?
+    ORDER BY iv.created_at ASC
+  `, [id, req.user.userId], (err, versions) => {
+    if (err) {
+      console.error('Error fetching income versions:', err);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json(versions);
+  });
+});
+
+app.post('/api/income/:id/versions', authenticateToken, (req, res) => {
+  const { id } = req.params;
+  const { version_name, description, amount, frequency, nextDue, applyFuzziness } = req.body;
+
+  // Validate required fields
+  if (!version_name || !description || !amount || !frequency || !nextDue) {
+    res.status(400).json({ error: 'Missing required fields' });
+    return;
+  }
+
+  db.run(`
+    INSERT INTO income_versions (
+      income_id, user_id, version_name, description, amount, frequency, nextDue, applyFuzziness
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `, [id, req.user.userId, version_name, description, amount, frequency, nextDue, applyFuzziness || 0], function(err) {
+    if (err) {
+      console.error('Error creating income version:', err);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ 
+      message: 'Income version created successfully',
+      id: this.lastID 
+    });
+  });
+});
+
+app.put('/api/income/:id/versions/:versionId', authenticateToken, (req, res) => {
+  const { id, versionId } = req.params;
+  const { description, amount, frequency, nextDue, applyFuzziness } = req.body;
+
+  // Validate required fields
+  if (!description || !amount || !frequency || !nextDue) {
+    res.status(400).json({ error: 'Missing required fields' });
+    return;
+  }
+
+  db.run(`
+    UPDATE income_versions 
+    SET description = ?, amount = ?, frequency = ?, nextDue = ?, applyFuzziness = ?
+    WHERE id = ? AND income_id = ? AND user_id = ?
+  `, [description, amount, frequency, nextDue, applyFuzziness || 0, versionId, id, req.user.userId], function(err) {
+    if (err) {
+      console.error('Error updating income version:', err);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+
+    if (this.changes === 0) {
+      res.status(404).json({ error: 'Income version not found' });
+      return;
+    }
+
+    res.json({ message: 'Income version updated successfully' });
+  });
+});
+
+app.delete('/api/income/:id/versions/:versionId', authenticateToken, (req, res) => {
+  const { id, versionId } = req.params;
+
+  db.run('DELETE FROM income_versions WHERE id = ? AND income_id = ? AND user_id = ?', [versionId, id, req.user.userId], function(err) {
+    if (err) {
+      console.error('Error deleting income version:', err);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+
+    if (this.changes === 0) {
+      res.status(404).json({ error: 'Income version not found' });
+      return;
+    }
+
+    res.json({ message: 'Income version deleted successfully' });
+  });
+});
+
+app.post('/api/income/:id/versions/:versionId/activate', authenticateToken, (req, res) => {
+  const { id, versionId } = req.params;
+
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
+
+    // First, get the current main income data to save it as a version if needed
+    db.get('SELECT * FROM income WHERE id = ? AND user_id = ?', [id, req.user.userId], (err, currentIncome) => {
+      if (err) {
+        console.error('Error getting current income:', err);
+        db.run('ROLLBACK');
+        res.status(500).json({ error: err.message });
+        return;
+      }
+
+      if (!currentIncome) {
+        db.run('ROLLBACK');
+        res.status(404).json({ error: 'Income not found' });
+        return;
+      }
+
+      // Get the income version data to activate
+      db.get('SELECT * FROM income_versions WHERE id = ? AND income_id = ? AND user_id = ?', [versionId, id, req.user.userId], (err, version) => {
+        if (err) {
+          console.error('Error getting income version:', err);
+          db.run('ROLLBACK');
+          res.status(500).json({ error: err.message });
+          return;
+        }
+
+        if (!version) {
+          db.run('ROLLBACK');
+          res.status(404).json({ error: 'Income version not found' });
+          return;
+        }
+
+        // Check if we need to save the current main income data as a version
+        db.all('SELECT * FROM income_versions WHERE income_id = ? AND user_id = ?', [id, req.user.userId], (err, existingVersions) => {
+          if (err) {
+            console.error('Error getting existing versions:', err);
+            db.run('ROLLBACK');
+            res.status(500).json({ error: err.message });
+            return;
+          }
+
+          // Simply update the main income with the version data - no version creation during activation
+          db.run(`
+            UPDATE income 
+            SET description = ?, amount = ?, frequency = ?, nextDue = ?, applyFuzziness = ?
+            WHERE id = ? AND user_id = ?
+          `, [version.description, version.amount, version.frequency, version.nextDue, version.applyFuzziness, id, req.user.userId], (err) => {
+            if (err) {
+              console.error('Error updating main income:', err);
+              db.run('ROLLBACK');
+              res.status(500).json({ error: err.message });
+              return;
+            }
+
+            db.run('COMMIT');
+            res.json({ message: 'Income version activated successfully' });
+          });
         });
       });
     });
@@ -3824,7 +3931,10 @@ app.get('/api/export', authenticateToken, (req, res) => {
       expenses: [],
       tags: [],
       settings: [],
-      expenseTags: []
+      expenseTags: [],
+      expenseVersions: [],
+      expenseVersionTags: [],
+      incomeVersions: []
     };
 
     // Export accounts
@@ -3868,11 +3978,33 @@ app.get('/api/export', authenticateToken, (req, res) => {
                 // Export manual adjustments
                 db.all('SELECT * FROM manual_adjustments WHERE user_id = ? AND version_id = ?', [userId, versionId], (err, manualAdjustments) => {
                   if (!err) exportData.manualAdjustments = manualAdjustments;
-                  // Set response headers for file download
-                  res.setHeader('Content-Type', 'application/json');
-                  res.setHeader('Content-Disposition', `attachment; filename="budget-export-${new Date().toISOString().split('T')[0]}.json"`);
-                  console.log(`Exported data for user ${userId}: ${exportData.accounts.length} accounts, ${exportData.income.length} income, ${exportData.expenses.length} expenses, ${exportData.tags.length} tags, ${exportData.settings.length} settings, ${exportData.expenseTags.length} expense-tag relationships, ${exportData.manualAdjustments?.length || 0} manual adjustments`);
-                  res.json(exportData);
+                  
+                  // Export expense versions
+                  db.all('SELECT * FROM expense_versions WHERE user_id = ?', [userId], (err, expenseVersions) => {
+                    if (!err) exportData.expenseVersions = expenseVersions;
+                    
+                    // Export expense version tags
+                    db.all(`
+                      SELECT evt.expense_version_id, evt.tag_id, t.name as tag_name 
+                      FROM expense_version_tags evt
+                      JOIN tags t ON evt.tag_id = t.id
+                      JOIN expense_versions ev ON evt.expense_version_id = ev.id
+                      WHERE ev.user_id = ?
+                    `, [userId], (err, expenseVersionTags) => {
+                      if (!err) exportData.expenseVersionTags = expenseVersionTags;
+                      
+                      // Export income versions
+                      db.all('SELECT * FROM income_versions WHERE user_id = ?', [userId], (err, incomeVersions) => {
+                        if (!err) exportData.incomeVersions = incomeVersions;
+                        
+                        // Set response headers for file download
+                        res.setHeader('Content-Type', 'application/json');
+                        res.setHeader('Content-Disposition', `attachment; filename="budget-export-${new Date().toISOString().split('T')[0]}.json"`);
+                        console.log(`Exported data for user ${userId}: ${exportData.accounts.length} accounts, ${exportData.income.length} income, ${exportData.expenses.length} expenses, ${exportData.tags.length} tags, ${exportData.settings.length} settings, ${exportData.expenseTags.length} expense-tag relationships, ${exportData.manualAdjustments?.length || 0} manual adjustments, ${exportData.expenseVersions.length} expense versions, ${exportData.expenseVersionTags.length} expense version tags, ${exportData.incomeVersions.length} income versions`);
+                        res.json(exportData);
+                      });
+                    });
+                  });
                 });
               });
             });
@@ -4165,6 +4297,95 @@ app.post('/api/import', authenticateToken, (req, res) => {
             }
             // --- END IMPORT ---
 
+            // Helper to insert expense versions and return a Promise
+            function insertExpenseVersions() {
+              return new Promise((resolve) => {
+                if (importData.expenseVersions && importData.expenseVersions.length > 0) {
+                  let versionsProcessed = 0;
+                  importData.expenseVersions.forEach(version => {
+                    // Map expense_id to new expense ID
+                    const newExpenseId = expenseIdMapping.get(version.expense_id);
+                    if (!newExpenseId) {
+                      console.warn(`Skipping expense version: expense_id=${version.expense_id} not found in mapping`);
+                      versionsProcessed++;
+                      if (versionsProcessed === importData.expenseVersions.length) {
+                        console.log(`Imported ${importData.expenseVersions.length} expense versions`);
+                        resolve();
+                      }
+                      return;
+                    }
+                    
+                    db.run(
+                      'INSERT INTO expense_versions (expense_id, user_id, version_name, description, amount, frequency, nextDue, applyFuzziness, notes, accountId, manualWithdrawalsOnly, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                      [newExpenseId, userId, version.version_name, version.description, version.amount, version.frequency, version.nextDue, version.applyFuzziness, version.notes, version.accountId, version.manualWithdrawalsOnly ? 1 : 0, version.is_active ? 1 : 0],
+                      function(err) {
+                        if (!err) {
+                          const newVersionId = this.lastID;
+                          // Map the old version ID to new version ID for expense version tags
+                          if (importData.expenseVersionTags) {
+                            const versionTags = importData.expenseVersionTags.filter(evt => evt.expense_version_id === version.id);
+                            versionTags.forEach(evt => {
+                              const newTagId = tagIdMapping.get(evt.tag_id);
+                              if (newTagId) {
+                                db.run('INSERT INTO expense_version_tags (expense_version_id, tag_id) VALUES (?, ?)', [newVersionId, newTagId], (err) => {
+                                  if (err && err.code !== 'SQLITE_CONSTRAINT_UNIQUE') {
+                                    console.error('Error linking tag to expense version:', err);
+                                  }
+                                });
+                              }
+                            });
+                          }
+                        }
+                        versionsProcessed++;
+                        if (versionsProcessed === importData.expenseVersions.length) {
+                          console.log(`Imported ${importData.expenseVersions.length} expense versions`);
+                          resolve();
+                        }
+                      }
+                    );
+                  });
+                } else {
+                  resolve();
+                }
+              });
+            }
+
+            // Helper to insert income versions and return a Promise
+            function insertIncomeVersions() {
+              return new Promise((resolve) => {
+                if (importData.incomeVersions && importData.incomeVersions.length > 0) {
+                  let versionsProcessed = 0;
+                  importData.incomeVersions.forEach(version => {
+                    // Map income_id to new income ID
+                    const newIncomeId = incomeIdMapping.get(version.income_id);
+                    if (!newIncomeId) {
+                      console.warn(`Skipping income version: income_id=${version.income_id} not found in mapping`);
+                      versionsProcessed++;
+                      if (versionsProcessed === importData.incomeVersions.length) {
+                        console.log(`Imported ${importData.incomeVersions.length} income versions`);
+                        resolve();
+                      }
+                      return;
+                    }
+                    
+                    db.run(
+                      'INSERT INTO income_versions (income_id, user_id, version_name, description, amount, frequency, nextDue, applyFuzziness, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                      [newIncomeId, userId, version.version_name, version.description, version.amount, version.frequency, version.nextDue, version.applyFuzziness, version.is_active ? 1 : 0],
+                      function(err) {
+                        versionsProcessed++;
+                        if (versionsProcessed === importData.incomeVersions.length) {
+                          console.log(`Imported ${importData.incomeVersions.length} income versions`);
+                          resolve();
+                        }
+                      }
+                    );
+                  });
+                } else {
+                  resolve();
+                }
+              });
+            }
+
             // Now, run the imports in sequence to ensure mapping is ready
             insertAccounts()
               .then(() => insertIncome())
@@ -4173,6 +4394,8 @@ app.post('/api/import', authenticateToken, (req, res) => {
               .then(() => insertSettings())
               .then(() => insertExpenseTags())
               .then(() => insertManualAdjustments())
+              .then(() => insertExpenseVersions())
+              .then(() => insertIncomeVersions())
               .then(() => {
                 db.run('COMMIT');
                 console.log(`Import completed for user ${userId}`);
@@ -4187,7 +4410,10 @@ app.post('/api/import', authenticateToken, (req, res) => {
                     tags: importData.tags?.length || 0,
                     settings: importData.settings?.length || 0,
                     expenseTags: importData.expenseTags?.length || 0,
-                    manualAdjustments: importData.manualAdjustments?.length || 0
+                    manualAdjustments: importData.manualAdjustments?.length || 0,
+                    expenseVersions: importData.expenseVersions?.length || 0,
+                    expenseVersionTags: importData.expenseVersionTags?.length || 0,
+                    incomeVersions: importData.incomeVersions?.length || 0
                   }
                 });
               })

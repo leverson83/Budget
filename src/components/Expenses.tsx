@@ -1779,46 +1779,43 @@ const Expenses = () => {
           )}
             </Box>
           </DialogContent>
-          <DialogActions>
-            {selectedVersionTab === 0 ? (
-              <>
-                <Button type="submit" variant="contained" color="primary">
-                  Update
-                </Button>
-                <Button onClick={handleClose} variant="outlined">
-                  Cancel
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button type="submit" variant="contained" color="primary">
-                  Update
-                </Button>
-                <Button onClick={handleClose} variant="outlined">
-                  Cancel
-                </Button>
-                <Button 
-                  onClick={() => handleActivateVersion(editingVersion?.id || 0)} 
-                  variant="outlined" 
-                  color="primary"
-                  disabled={editingVersion?.is_active}
-                >
-                  Activate
-                </Button>
-                <Button 
-                  onClick={() => {
-                    if (window.confirm('Are you sure you want to delete this version?')) {
-                      handleDeleteVersion(editingVersion?.id || 0);
-                    }
-                  }} 
-                  variant="outlined"
-                  color="error"
-                >
-                  Delete
-                </Button>
-              </>
-            )}
-          </DialogActions>
+                  <DialogActions>
+          {selectedVersionTab === 0 ? (
+            <>
+              <Button onClick={handleClose} variant="outlined">
+                Cancel
+              </Button>
+              <Button type="submit" variant="contained" color="primary">
+                Update
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button 
+                onClick={() => {
+                  if (window.confirm('Are you sure you want to delete this version?')) {
+                    handleDeleteVersion(editingVersion?.id || 0);
+                  }
+                }} 
+                variant="outlined"
+                color="error"
+              >
+                Delete
+              </Button>
+              <Button onClick={handleClose} variant="outlined">
+                Cancel
+              </Button>
+              <Button 
+                onClick={() => handleActivateVersion(editingVersion?.id || 0)} 
+                variant="contained" 
+                color="primary"
+                disabled={editingVersion?.is_active}
+              >
+                Activate
+              </Button>
+            </>
+          )}
+        </DialogActions>
         </form>
       </Dialog>
 
